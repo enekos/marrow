@@ -2,7 +2,10 @@ package stemmer
 
 import (
 	"reflect"
+	"strings"
 	"testing"
+
+	"marrow/internal/testutil"
 )
 
 func TestTokenize(t *testing.T) {
@@ -22,62 +25,55 @@ func TestFilterStopWords(t *testing.T) {
 }
 
 func TestStemText(t *testing.T) {
-	tests := []struct {
-		name     string
-		text     string
-		lang     string
-		expected string
+	cases := []struct {
+		name string
+		text string
+		lang string
 	}{
 		{
-			name:     "english running with stopwords removed",
-			text:     "The cats are running quickly",
-			lang:     "en",
-			expected: "cat run quick",
+			name: "english running with stopwords removed",
+			text: "The cats are running quickly",
+			lang: "en",
 		},
 		{
-			name:     "spanish corriendo",
-			text:     "Los gatos están corriendo",
-			lang:     "es",
-			expected: "gat corr",
+			name: "spanish corriendo",
+			text: "Los gatos están corriendo",
+			lang: "es",
 		},
 		{
-			name:     "basque stemming lowercases and removes suffixes",
-			text:     "Katuek Etxean Daude",
-			lang:     "eu",
-			expected: "katu etxean",
+			name: "basque stemming lowercases and removes suffixes",
+			text: "Katuek Etxean Daude",
+			lang: "eu",
 		},
 		{
-			name:     "unknown language lowercases",
-			text:     "Hello WORLD",
-			lang:     "fr",
-			expected: "hello world",
+			name: "unknown language lowercases",
+			text: "Hello WORLD",
+			lang: "fr",
 		},
 		{
-			name:     "empty text",
-			text:     "",
-			lang:     "en",
-			expected: "",
+			name: "empty text",
+			text: "",
+			lang: "en",
 		},
 		{
-			name:     "punctuation stripped",
-			text:     "running, quickly!!!",
-			lang:     "en",
-			expected: "run quick",
+			name: "punctuation stripped",
+			text: "running, quickly!!!",
+			lang: "en",
 		},
 		{
-			name:     "all stopwords become empty",
-			text:     "the a an is",
-			lang:     "en",
-			expected: "",
+			name: "all stopwords become empty",
+			text: "the a an is",
+			lang: "en",
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := StemText(tt.text, tt.lang)
-			if got != tt.expected {
-				t.Errorf("StemText(%q, %q) = %q; want %q", tt.text, tt.lang, got, tt.expected)
-			}
-		})
+	var sb strings.Builder
+	for _, tt := range cases {
+		sb.WriteString(tt.name)
+		sb.WriteString(": ")
+		sb.WriteString(StemText(tt.text, tt.lang))
+		sb.WriteByte('\n')
 	}
+
+	testutil.VerifyApprovedString(t, sb.String())
 }
