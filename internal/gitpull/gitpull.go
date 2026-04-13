@@ -38,17 +38,17 @@ func Sync(repoURL, token, localPath string) ([]string, error) {
 		return nil, fmt.Errorf("not a git repo: %w", err)
 	}
 
-	// Fetch and pull
+	// Fetch latest commit shallowly
 	if err := runGit(localPath, "fetch", "--depth", "1", "origin"); err != nil {
 		return nil, fmt.Errorf("fetch: %w", err)
 	}
 
-	// Capture pre-pull HEAD for diff
+	// Capture pre-update HEAD for diff
 	oldHead, _ := gitOutput(localPath, "rev-parse", "HEAD")
 
-	// Pull with rebase/merge fast-forward
-	if err := runGit(localPath, "pull", "origin"); err != nil {
-		return nil, fmt.Errorf("pull: %w", err)
+	// Reset to fetched HEAD (works reliably for shallow clones)
+	if err := runGit(localPath, "reset", "--hard", "FETCH_HEAD"); err != nil {
+		return nil, fmt.Errorf("reset: %w", err)
 	}
 
 	newHead, _ := gitOutput(localPath, "rev-parse", "HEAD")
