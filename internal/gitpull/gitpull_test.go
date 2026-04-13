@@ -13,6 +13,10 @@ func TestSync_CloneAndPull(t *testing.T) {
 	if err := runGit(upstreamDir, "init", "--bare"); err != nil {
 		t.Fatalf("init bare: %v", err)
 	}
+	// Set default branch so clones know what to checkout
+	if err := runGit(upstreamDir, "symbolic-ref", "HEAD", "refs/heads/main"); err != nil {
+		t.Fatalf("set head: %v", err)
+	}
 
 	// Create a local clone, add a markdown file, and push
 	cloneDir := t.TempDir()
@@ -41,9 +45,10 @@ func TestSync_CloneAndPull(t *testing.T) {
 		_ = runGit(cloneDir, "push", "origin", "HEAD:master")
 	}
 
-	// Test Sync (clone)
+	// Test Sync (clone) — use file:// protocol so --depth works with local paths
 	targetDir := t.TempDir()
-	changed, err := Sync(upstreamDir, "", targetDir)
+	upstreamURL := "file://" + upstreamDir
+	changed, err := Sync(upstreamURL, "", targetDir)
 	if err != nil {
 		t.Fatalf("first sync: %v", err)
 	}
@@ -77,7 +82,7 @@ func TestSync_CloneAndPull(t *testing.T) {
 	}
 
 	// Test Sync (pull)
-	changed2, err := Sync(upstreamDir, "", targetDir)
+	changed2, err := Sync(upstreamURL, "", targetDir)
 	if err != nil {
 		t.Fatalf("second sync: %v", err)
 	}
