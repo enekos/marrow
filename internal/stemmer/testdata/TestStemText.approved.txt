@@ -1,0 +1,7 @@
+english running with stopwords removed: cat run quick
+spanish corriendo: gat corr
+basque stemming lowercases and removes suffixes: katu etxean
+unknown language lowercases: hello world
+empty text: 
+punctuation stripped: run quick
+all stopwords become empty: 
