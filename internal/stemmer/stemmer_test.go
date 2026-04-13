@@ -41,10 +41,10 @@ func TestStemText(t *testing.T) {
 			expected: "gat corr",
 		},
 		{
-			name:     "basque fallback lowercases",
+			name:     "basque stemming lowercases and removes suffixes",
 			text:     "Katuek Etxean Daude",
 			lang:     "eu",
-			expected: "katuek etxean daude",
+			expected: "katu etxean",
 		},
 		{
 			name:     "unknown language lowercases",

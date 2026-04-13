@@ -1,0 +1,698 @@
+package basque
+
+import (
+	"strings"
+
+	"marrow/internal/stemmer/romance"
+	"marrow/internal/stemmer/snowballword"
+)
+
+type suffixAction struct {
+	suffix      string
+	suffixRunes []rune
+	action      int
+}
+
+func newSuffixAction(suffix string, action int) suffixAction {
+	return suffixAction{suffix: suffix, suffixRunes: []rune(suffix), action: action}
+}
+
+var aditzakSuffixes = []suffixAction{
+	newSuffixAction("arabera", -1),
+	newSuffixAction("atseden", -1),
+	newSuffixAction("tzailea", 1),
+	newSuffixAction("aldatu", 1),
+	newSuffixAction("baditu", -1),
+	newSuffixAction("erreza", 1),
+	newSuffixAction("gailua", 1),
+	newSuffixAction("gaitza", 1),
+	newSuffixAction("garria", 2),
+	newSuffixAction("kaitza", 1),
+	newSuffixAction("karria", 1),
+	newSuffixAction("kizuna", 1),
+	newSuffixAction("kundea", 1),
+	newSuffixAction("kuntza", 1),
+	newSuffixAction("tailea", 1),
+	newSuffixAction("taldia", 1),
+	newSuffixAction("tarazi", 1),
+	newSuffixAction("tezina", 1),
+	newSuffixAction("tzaile", 1),
+	newSuffixAction("aldia", 1),
+	newSuffixAction("arazi", 1),
+	newSuffixAction("bidea", 1),
+	newSuffixAction("errez", 1),
+	newSuffixAction("etari", 1),
+	newSuffixAction("ezina", 1),
+	newSuffixAction("gailu", 1),
+	newSuffixAction("gaitz", 1),
+	newSuffixAction("galea", 1),
+	newSuffixAction("garri", 2),
+	newSuffixAction("gunea", 1),
+	newSuffixAction("kaitz", 1),
+	newSuffixAction("karia", 1),
+	newSuffixAction("karri", 1),
+	newSuffixAction("kidea", 1),
+	newSuffixAction("kizun", 1),
+	newSuffixAction("korra", 1),
+	newSuffixAction("kunde", 1),
+	newSuffixAction("kunea", 1),
+	newSuffixAction("pidea", 1),
+	newSuffixAction("rekin", 1),
+	newSuffixAction("taile", 1),
+	newSuffixAction("taldi", 1),
+	newSuffixAction("tezin", 1),
+	newSuffixAction("tzaga", 1),
+	newSuffixAction("tzaka", 1),
+	newSuffixAction("tzake", 1),
+	newSuffixAction("tzeke", 1),
+	newSuffixAction("aldi", 1),
+	newSuffixAction("atze", 1),
+	newSuffixAction("bera", 1),
+	newSuffixAction("bide", 1),
+	newSuffixAction("dako", 1),
+	newSuffixAction("dura", 1),
+	newSuffixAction("etan", 1),
+	newSuffixAction("ezin", 1),
+	newSuffixAction("gaia", 1),
+	newSuffixAction("gale", 1),
+	newSuffixAction("gune", 1),
+	newSuffixAction("gura", 1),
+	newSuffixAction("idea", 1),
+	newSuffixAction("kari", 1),
+	newSuffixAction("kera", 1),
+	newSuffixAction("keta", 1),
+	newSuffixAction("kide", 1),
+	newSuffixAction("kina", 1),
+	newSuffixAction("kuna", 1),
+	newSuffixAction("kune", 1),
+	newSuffixAction("kura", 1),
+	newSuffixAction("lari", 1),
+	newSuffixAction("mena", 1),
+	newSuffixAction("orra", 1),
+	newSuffixAction("pena", 1),
+	newSuffixAction("pera", 1),
+	newSuffixAction("pide", 1),
+	newSuffixAction("rean", 1),
+	newSuffixAction("tari", 1),
+	newSuffixAction("tatu", 1),
+	newSuffixAction("tuna", 1),
+	newSuffixAction("tura", 1),
+	newSuffixAction("tzat", 1),
+	newSuffixAction("tzez", 1),
+	newSuffixAction("ago", 1),
+	newSuffixAction("ari", 1),
+	newSuffixAction("atu", 1),
+	newSuffixAction("ean", 1),
+	newSuffixAction("era", 1),
+	newSuffixAction("eta", 1),
+	newSuffixAction("eza", 1),
+	newSuffixAction("gai", 1),
+	newSuffixAction("ide", 1),
+	newSuffixAction("kan", 1),
+	newSuffixAction("kin", 1),
+	newSuffixAction("kor", 1),
+	newSuffixAction("men", 1),
+	newSuffixAction("pen", 1),
+	newSuffixAction("tio", 1),
+	newSuffixAction("tun", 1),
+	newSuffixAction("tza", 2),
+	newSuffixAction("tze", 1),
+	newSuffixAction("an", 1),
+	newSuffixAction("du", 1),
+	newSuffixAction("ez", 1),
+	newSuffixAction("go", 1),
+	newSuffixAction("ka", 1),
+	newSuffixAction("ki", 1),
+	newSuffixAction("la", 1),
+	newSuffixAction("le", 1),
+	newSuffixAction("or", 1),
+	newSuffixAction("tu", 1),
+}
+
+var izenakSuffixes = []suffixAction{
+	newSuffixAction("minutuko", 6),
+	newSuffixAction("garrena", 1),
+	newSuffixAction("gerrena", 1),
+	newSuffixAction("aurrea", 1),
+	newSuffixAction("garren", 1),
+	newSuffixAction("garria", 2),
+	newSuffixAction("gerren", 1),
+	newSuffixAction("gibela", 1),
+	newSuffixAction("gintza", 1),
+	newSuffixAction("gintzo", 1),
+	newSuffixAction("gintzu", 1),
+	newSuffixAction("handia", 1),
+	newSuffixAction("kaldea", 1),
+	newSuffixAction("kintza", 1),
+	newSuffixAction("kirria", 1),
+	newSuffixAction("koitza", 1),
+	newSuffixAction("kondoa", 1),
+	newSuffixAction("kuntza", 1),
+	newSuffixAction("larria", 1),
+	newSuffixAction("mendia", 1),
+	newSuffixAction("mendua", 1),
+	newSuffixAction("mentua", 1),
+	newSuffixAction("ontzia", 1),
+	newSuffixAction("taldea", 1),
+	newSuffixAction("taldia", 1),
+	newSuffixAction("tariko", 1),
+	newSuffixAction("tasuna", 1),
+	newSuffixAction("tzaina", 1),
+	newSuffixAction("tzalea", 1),
+	newSuffixAction("tzarra", 1),
+	newSuffixAction("urrena", 1),
+	newSuffixAction("zionea", 1),
+	newSuffixAction("aizun", 1),
+	newSuffixAction("aldea", 1),
+	newSuffixAction("aldia", 1),
+	newSuffixAction("antza", 1),
+	newSuffixAction("artea", 1),
+	newSuffixAction("asuna", 1),
+	newSuffixAction("aurka", -1),
+	newSuffixAction("aurre", 1),
+	newSuffixAction("behar", 1),
+	newSuffixAction("bizia", 1),
+	newSuffixAction("burua", 1),
+	newSuffixAction("degia", 1),
+	newSuffixAction("denda", 1),
+	newSuffixAction("duria", 1),
+	newSuffixAction("durua", 1),
+	newSuffixAction("eroza", 1),
+	newSuffixAction("estua", 1),
+	newSuffixAction("etako", 1),
+	newSuffixAction("etara", 1),
+	newSuffixAction("etxea", 1),
+	newSuffixAction("gabea", 1),
+	newSuffixAction("garna", 1),
+	newSuffixAction("garri", 2),
+	newSuffixAction("geldi", -1),
+	newSuffixAction("gibel", 1),
+	newSuffixAction("gilea", 1),
+	newSuffixAction("gunea", 1),
+	newSuffixAction("handi", 1),
+	newSuffixAction("igaro", -1),
+	newSuffixAction("kabea", 1),
+	newSuffixAction("kaila", 1),
+	newSuffixAction("kalde", 1),
+	newSuffixAction("karia", 1),
+	newSuffixAction("keria", 1),
+	newSuffixAction("kirri", 1),
+	newSuffixAction("koitz", 1),
+	newSuffixAction("kondo", 1),
+	newSuffixAction("korra", 1),
+	newSuffixAction("kotea", 1),
+	newSuffixAction("kumea", 1),
+	newSuffixAction("laria", 1),
+	newSuffixAction("larri", 1),
+	newSuffixAction("lekua", 1),
+	newSuffixAction("liara", 1),
+	newSuffixAction("mendi", 1),
+	newSuffixAction("mendu", 1),
+	newSuffixAction("mentu", 1),
+	newSuffixAction("nahia", 1),
+	newSuffixAction("ondoa", 1),
+	newSuffixAction("ontzi", 1),
+	newSuffixAction("ordea", 1),
+	newSuffixAction("ordua", 1),
+	newSuffixAction("ostea", 1),
+	newSuffixAction("skila", 1),
+	newSuffixAction("takoa", 1),
+	newSuffixAction("talde", 1),
+	newSuffixAction("taldi", 1),
+	newSuffixAction("taria", 1),
+	newSuffixAction("tarik", 1),
+	newSuffixAction("taroa", 1),
+	newSuffixAction("tasun", 1),
+	newSuffixAction("tegia", 1),
+	newSuffixAction("teria", 1),
+	newSuffixAction("tiara", 1),
+	newSuffixAction("tokia", 1),
+	newSuffixAction("trako", 5),
+	newSuffixAction("tzain", 1),
+	newSuffixAction("tzale", 1),
+	newSuffixAction("tzara", 1),
+	newSuffixAction("urren", 1),
+	newSuffixAction("zaina", 1),
+	newSuffixAction("zalea", 1),
+	newSuffixAction("zaroa", 1),
+	newSuffixAction("zehar", -1),
+	newSuffixAction("zinoa", 1),
+	newSuffixAction("zione", 1),
+	newSuffixAction("alde", 1),
+	newSuffixAction("aldi", 1),
+	newSuffixAction("anda", 1),
+	newSuffixAction("anga", 1),
+	newSuffixAction("aria", 1),
+	newSuffixAction("aroa", 1),
+	newSuffixAction("arte", 1),
+	newSuffixAction("asia", 1),
+	newSuffixAction("asun", 1),
+	newSuffixAction("bera", 1),
+	newSuffixAction("buru", 2),
+	newSuffixAction("dara", 1),
+	newSuffixAction("degi", 1),
+	newSuffixAction("duna", 1),
+	newSuffixAction("duri", 1),
+	newSuffixAction("duru", 1),
+	newSuffixAction("egia", 1),
+	newSuffixAction("emea", 1),
+	newSuffixAction("enea", 1),
+	newSuffixAction("eria", 1),
+	newSuffixAction("eroa", 1),
+	newSuffixAction("eroz", 1),
+	newSuffixAction("estu", 1),
+	newSuffixAction("etan", 1),
+	newSuffixAction("etxe", 1),
+	newSuffixAction("ezia", 1),
+	newSuffixAction("gabe", 1),
+	newSuffixAction("gaia", 1),
+	newSuffixAction("geia", 1),
+	newSuffixAction("gela", 1),
+	newSuffixAction("gile", 1),
+	newSuffixAction("giro", 1),
+	newSuffixAction("gune", 1),
+	newSuffixAction("joka", 3),
+	newSuffixAction("kabe", 1),
+	newSuffixAction("kada", 1),
+	newSuffixAction("kail", 1),
+	newSuffixAction("kana", 1),
+	newSuffixAction("kari", 1),
+	newSuffixAction("kera", 1),
+	newSuffixAction("keta", 1),
+	newSuffixAction("kide", 1),
+	newSuffixAction("kina", 1),
+	newSuffixAction("koia", 1),
+	newSuffixAction("kote", 1),
+	newSuffixAction("kume", 1),
+	newSuffixAction("lari", 1),
+	newSuffixAction("leku", 1),
+	newSuffixAction("liar", 1),
+	newSuffixAction("mina", 1),
+	newSuffixAction("nahi", 1),
+	newSuffixAction("ngoa", 1),
+	newSuffixAction("ohia", 1),
+	newSuffixAction("ondo", 1),
+	newSuffixAction("orde", 1),
+	newSuffixAction("ordu", 1),
+	newSuffixAction("oroa", 1),
+	newSuffixAction("osoa", 1),
+	newSuffixAction("oste", 1),
+	newSuffixAction("pera", 1),
+	newSuffixAction("tako", 1),
+	newSuffixAction("tara", 1),
+	newSuffixAction("tari", 1),
+	newSuffixAction("taro", 1),
+	newSuffixAction("tatu", 4),
+	newSuffixAction("tegi", 1),
+	newSuffixAction("tiar", 1),
+	newSuffixAction("tila", 1),
+	newSuffixAction("toki", 1),
+	newSuffixAction("tsua", 1),
+	newSuffixAction("ttoa", 1),
+	newSuffixAction("tuko", 1),
+	newSuffixAction("txoa", 1),
+	newSuffixAction("txua", 1),
+	newSuffixAction("tzar", 1),
+	newSuffixAction("tzen", 4),
+	newSuffixAction("tzoa", 1),
+	newSuffixAction("tzua", 1),
+	newSuffixAction("unea", 1),
+	newSuffixAction("zain", 1),
+	newSuffixAction("zale", 1),
+	newSuffixAction("zaro", 1),
+	newSuffixAction("zino", 1),
+	newSuffixAction("zioa", 1),
+	newSuffixAction("zkoa", 1),
+	newSuffixAction("ztoa", 1),
+	newSuffixAction("ada", 1),
+	newSuffixAction("ail", 1),
+	newSuffixAction("ara", 1),
+	newSuffixAction("ari", 1),
+	newSuffixAction("aro", 1),
+	newSuffixAction("asi", 1),
+	newSuffixAction("dar", 1),
+	newSuffixAction("dua", 1),
+	newSuffixAction("dun", 1),
+	newSuffixAction("egi", 1),
+	newSuffixAction("eko", 1),
+	newSuffixAction("eme", 1),
+	newSuffixAction("ena", 1),
+	newSuffixAction("ero", 1),
+	newSuffixAction("eta", 1),
+	newSuffixAction("eza", 1),
+	newSuffixAction("gai", 1),
+	newSuffixAction("gei", 1),
+	newSuffixAction("goi", 1),
+	newSuffixAction("kan", 1),
+	newSuffixAction("ket", 1),
+	newSuffixAction("kia", 1),
+	newSuffixAction("kin", 1),
+	newSuffixAction("koa", 1),
+	newSuffixAction("koi", 1),
+	newSuffixAction("kor", 1),
+	newSuffixAction("min", 1),
+	newSuffixAction("nea", 1),
+	newSuffixAction("ngo", 1),
+	newSuffixAction("noa", 1),
+	newSuffixAction("ohi", 1),
+	newSuffixAction("oia", 1),
+	newSuffixAction("ola", 1),
+	newSuffixAction("ora", 2),
+	newSuffixAction("oro", 1),
+	newSuffixAction("osa", 1),
+	newSuffixAction("oso", 1),
+	newSuffixAction("pea", 1),
+	newSuffixAction("ren", 2),
+	newSuffixAction("ska", 1),
+	newSuffixAction("sko", 1),
+	newSuffixAction("sta", 1),
+	newSuffixAction("tan", 1),
+	newSuffixAction("tar", 1),
+	newSuffixAction("tea", 1),
+	newSuffixAction("ten", 4),
+	newSuffixAction("tia", 1),
+	newSuffixAction("toa", 1),
+	newSuffixAction("tra", 1),
+	newSuffixAction("tsu", 1),
+	newSuffixAction("tto", 1),
+	newSuffixAction("tua", 1),
+	newSuffixAction("txo", 1),
+	newSuffixAction("txu", 1),
+	newSuffixAction("tza", 2),
+	newSuffixAction("tzo", 1),
+	newSuffixAction("tzu", 1),
+	newSuffixAction("una", 1),
+	newSuffixAction("une", 1),
+	newSuffixAction("xka", 1),
+	newSuffixAction("zio", 1),
+	newSuffixAction("zka", 1),
+	newSuffixAction("zko", 1),
+	newSuffixAction("zto", 1),
+	newSuffixAction("zua", 1),
+	newSuffixAction("ñoa", 1),
+	newSuffixAction("ak", 1),
+	newSuffixAction("ar", 1),
+	newSuffixAction("di", 1),
+	newSuffixAction("du", 1),
+	newSuffixAction("ek", 1),
+	newSuffixAction("en", 4),
+	newSuffixAction("ez", 1),
+	newSuffixAction("ga", 1),
+	newSuffixAction("ge", 1),
+	newSuffixAction("go", 1),
+	newSuffixAction("ka", 1),
+	newSuffixAction("ki", 1),
+	newSuffixAction("ko", 1),
+	newSuffixAction("na", 1),
+	newSuffixAction("ne", 1),
+	newSuffixAction("no", 1),
+	newSuffixAction("oi", 1),
+	newSuffixAction("or", 2),
+	newSuffixAction("os", 1),
+	newSuffixAction("pe", 1),
+	newSuffixAction("ra", 1),
+	newSuffixAction("ro", 1),
+	newSuffixAction("sa", 1),
+	newSuffixAction("ta", 1),
+	newSuffixAction("te", 1),
+	newSuffixAction("ti", 1),
+	newSuffixAction("to", 1),
+	newSuffixAction("tu", 1),
+	newSuffixAction("tz", 1),
+	newSuffixAction("za", 1),
+	newSuffixAction("zp", 1),
+	newSuffixAction("zu", 1),
+	newSuffixAction("ñi", 1),
+	newSuffixAction("ño", 1),
+	newSuffixAction("z", 1),
+}
+
+var adjetiboakSuffixes = []suffixAction{
+	newSuffixAction("keria", 1),
+	newSuffixAction("lanik", 1),
+	newSuffixAction("larik", 1),
+	newSuffixAction("dade", 1),
+	newSuffixAction("date", 1),
+	newSuffixAction("tade", 1),
+	newSuffixAction("tate", 1),
+	newSuffixAction("zlea", 2),
+	newSuffixAction("ztik", 1),
+	newSuffixAction("era", 1),
+	newSuffixAction("ero", 1),
+	newSuffixAction("rik", 1),
+	newSuffixAction("gi", 1),
+	newSuffixAction("go", 1),
+	newSuffixAction("ik", 1),
+	newSuffixAction("ki", 1),
+	newSuffixAction("la", 1),
+	newSuffixAction("ro", 1),
+	newSuffixAction("to", 1),
+}
+
+func isVowel(r rune) bool {
+	switch r {
+	case 'a', 'e', 'i', 'o', 'u':
+		return true
+	}
+	return false
+}
+
+func findSuffix(w *snowballword.SnowballWord, actions []suffixAction) (suffixAction, bool) {
+	for _, sa := range actions {
+		if w.HasSuffixRunes(sa.suffixRunes) {
+			return sa, true
+		}
+	}
+	return suffixAction{}, false
+}
+
+func markRegions(w *snowballword.SnowballWord) (p1, p2, pV int) {
+	rs := w.RS
+	limit := len(rs)
+	pV = limit
+	p1 = limit
+	p2 = limit
+
+	cursor := 0
+
+	// Try option A: vowel-based start
+	if tryPVOptionA(rs, limit, &cursor) {
+		pV = cursor
+	} else if tryPVOptionB(rs, limit, &cursor) {
+		pV = cursor
+	}
+
+	p1 = romance.VnvSuffix(w, isVowel, 0)
+	p2 = romance.VnvSuffix(w, isVowel, p1)
+	return
+}
+
+// tryPVOptionA implements the first branch of the Snowball pV calculation:
+// ( v (non-v gopast v) or (v gopast non-v) )
+func tryPVOptionA(rs []rune, limit int, cursor *int) bool {
+	c := *cursor
+	if c >= limit || !isVowel(rs[c]) {
+		return false
+	}
+	c++
+
+	// sub-branch 1: non-v gopast v
+	v3 := c
+	if c < limit && !isVowel(rs[c]) {
+		c++
+		for c < limit && !isVowel(rs[c]) {
+			c++
+		}
+		if c < limit {
+			*cursor = c + 1
+			return true
+		}
+	}
+
+	// sub-branch 2: v gopast non-v
+	c = v3
+	if c < limit && isVowel(rs[c]) {
+		c++
+		for c < limit && isVowel(rs[c]) {
+			c++
+		}
+		if c < limit {
+			*cursor = c + 1
+			return true
+		}
+	}
+	return false
+}
+
+// tryPVOptionB implements the second branch:
+// ( non-v (non-v gopast v) or (v next) )
+func tryPVOptionB(rs []rune, limit int, cursor *int) bool {
+	c := *cursor
+	if c >= limit || isVowel(rs[c]) {
+		return false
+	}
+	c++
+
+	// sub-branch 1: non-v gopast v
+	v4 := c
+	if c < limit && !isVowel(rs[c]) {
+		c++
+		for c < limit && !isVowel(rs[c]) {
+			c++
+		}
+		if c < limit {
+			*cursor = c + 1
+			return true
+		}
+	}
+
+	// sub-branch 2: v next
+	c = v4
+	if c < limit && isVowel(rs[c]) {
+		c++
+		if c < limit {
+			*cursor = c + 1
+			return true
+		}
+	}
+	return false
+}
+
+func aditzak(w *snowballword.SnowballWord) bool {
+	sa, ok := findSuffix(w, aditzakSuffixes)
+	if !ok {
+		return false
+	}
+	rsLen := len(w.RS)
+	suffixStart := rsLen - len(sa.suffixRunes)
+
+	switch sa.action {
+	case 1: // RV delete
+		if suffixStart < w.RVstart {
+			return false
+		}
+		w.RemoveLastNRunes(len(sa.suffixRunes))
+		return true
+	case 2: // R2 delete
+		if suffixStart < w.R2start {
+			return false
+		}
+		w.RemoveLastNRunes(len(sa.suffixRunes))
+		return true
+	case -1: // no action
+		return true
+	}
+	return false
+}
+
+func izenak(w *snowballword.SnowballWord) bool {
+	sa, ok := findSuffix(w, izenakSuffixes)
+	if !ok {
+		return false
+	}
+	rsLen := len(w.RS)
+	suffixStart := rsLen - len(sa.suffixRunes)
+
+	switch sa.action {
+	case 1: // RV delete
+		if suffixStart < w.RVstart {
+			return false
+		}
+		w.RemoveLastNRunes(len(sa.suffixRunes))
+		return true
+	case 2: // R2 delete
+		if suffixStart < w.R2start {
+			return false
+		}
+		w.RemoveLastNRunes(len(sa.suffixRunes))
+		return true
+	case 3: // replace with "jok"
+		w.ReplaceSuffixRunes(sa.suffixRunes, []rune("jok"), true)
+		return true
+	case 4: // R1 delete
+		if suffixStart < w.R1start {
+			return false
+		}
+		w.RemoveLastNRunes(len(sa.suffixRunes))
+		return true
+	case 5: // replace with "tra"
+		w.ReplaceSuffixRunes(sa.suffixRunes, []rune("tra"), true)
+		return true
+	case 6: // replace with "minutu"
+		w.ReplaceSuffixRunes(sa.suffixRunes, []rune("minutu"), true)
+		return true
+	case -1: // no action
+		return true
+	}
+	return false
+}
+
+func adjetiboak(w *snowballword.SnowballWord) bool {
+	sa, ok := findSuffix(w, adjetiboakSuffixes)
+	if !ok {
+		return false
+	}
+	rsLen := len(w.RS)
+	suffixStart := rsLen - len(sa.suffixRunes)
+
+	switch sa.action {
+	case 1: // RV delete
+		if suffixStart < w.RVstart {
+			return false
+		}
+		w.RemoveLastNRunes(len(sa.suffixRunes))
+		return true
+	case 2: // replace with "z"
+		w.ReplaceSuffixRunes(sa.suffixRunes, []rune("z"), true)
+		return true
+	}
+	return false
+}
+
+// Stem a Basque word.
+func Stem(word string, stemStopWords bool) string {
+	word = strings.ToLower(strings.TrimSpace(word))
+
+	if len(word) <= 2 || (!stemStopWords && isStopWord(word)) {
+		return word
+	}
+
+	w := snowballword.New(word)
+
+	p1, p2, pV := markRegions(w)
+	w.R1start = p1
+	w.R2start = p2
+	w.RVstart = pV
+
+	for aditzak(w) {
+	}
+	for izenak(w) {
+	}
+	adjetiboak(w)
+
+	return w.String()
+}
+
+func isStopWord(word string) bool {
+	switch word {
+	case "a", "al", "an", "andi", "arabera", "arekin", "arengan", "arengatik",
+		"arentzat", "ari", "arren", "arte", "artean", "at", "aurretik",
+		"bada", "baditu", "baino", "bai", "baita", "barru", "bat", "batean",
+		"batek", "batekiko", "baten", "batere", "batera", "baterantz",
+		"bezala", "bi", "bitan", "bizi", "da", "dago", "daude", "dela",
+		"den", "dena", "denak", "denean", "ditu", "du", "dute", "edo",
+		"egin", "ere", "esku", "eta", "eurak", "ez", "ezker", "gainera",
+		"gainerako", "gara", "gaude", "gero", "gisa", "gu", "gutxi",
+		"guzti", "haiek", "haietan", "hainbeste", "hala", "han", "handik",
+		"hango", "hara", "hari", "hark", "hartan", "hau", "hauek", "hauekin",
+		"hauen", "hauetan", "hemen", "hemendik", "hemengo", "hi", "hona",
+		"honek", "honela", "honetan", "hontzat", "hor", "hori", "horiek",
+		"horien", "horko", "hortik", "hortxe", "hura", "izan", "ni",
+		"noiz", "nola", "non", "nondik", "nongo", "nor", "nora", "nork",
+		"nori", "nortzuk", "nortzu", "nun", "oraingo", "oro", "oro har",
+		"oro harretik", "ostean", "oso", "ta", "te", "ti", "tun", "tu",
+		"zergatik", "zer", "zion", "zu", "zuek", "zuen":
+		return true
+	}
+	return false
+}
