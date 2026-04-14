@@ -41,7 +41,7 @@ func TestSearch_HybridRankingAndTitleBoost(t *testing.T) {
 	engine := NewEngine(database, embedFn)
 
 	// Search for "go" — all three docs contain it, but /a.md and /c.md have "go" in title.
-	results, err := engine.Search(ctx, "go", 10)
+	results, err := engine.Search(ctx, "go", "", 10)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestSearch_EmptyQuery(t *testing.T) {
 	ctx := context.Background()
 	database := setupTestDB(t)
 	engine := NewEngine(database, embed.NewMock())
-	results, err := engine.Search(ctx, "", 10)
+	results, err := engine.Search(ctx, "", "", 10)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -85,4 +85,69 @@ func mustEmbed(fn embed.Func, text string) []float32 {
 		panic(err)
 	}
 	return v
+}
+
+func TestDetectQueryLang(t *testing.T) {
+	tests := []struct {
+		query string
+		want  string
+	}{
+		// English – basic stopwords and common terms
+		{"the quick brown fox", "en"},
+		{"how to use git", "en"},
+		{"software configuration", "en"},
+		{"Go Programming", "en"},
+		{"a b c", "en"},
+		{"123 456", "en"},
+
+		// Spanish – stopwords and unique characters
+		{"el libro", "es"},
+		{"la casa", "es"},
+		{"configuración", "es"},
+		{"¿qué es esto?", "es"},
+		{"señor García", "es"},
+		{"cómo funciona esto", "es"},
+		{"qué", "es"},
+		{"ñ", "es"},
+		{"¡hola!", "es"},
+		{"más o menos", "es"},
+
+		// Basque – digraphs and common words
+		{"txistu", "eu"},
+		{"etxe", "eu"},
+		{"hitz", "eu"},
+		{"Euskal Herria", "eu"},
+		{"eta", "eu"},
+		{"ez da", "eu"},
+		{"nire etxea", "eu"},
+		{"tx", "eu"},
+		{"tz", "eu"},
+		{"zer da hau", "eu"},
+		{"Donostia kalean", "eu"},
+
+		// Edge cases that previously mis-detected
+		{"meta analysis", "en"},            // "eta" inside "meta" must not trigger Basque
+		{"cats and dogs", "en"},            // "ts" in "cats" must not trigger Basque
+		{"next", "en"},                     // no false Basque from tx/tz
+		{"matrix", "en"},                   // no false Basque
+		{"how to configure eta", "en"},     // English context overrides lone "eta"
+		{"who is señor Garcia", "es"},      // ñ overrides English stopwords
+		{"a", "en"},                        // ambiguous single-letter word, default to English
+		{"el", "es"},                       // unambiguous Spanish
+
+		// Mixed-context edge cases
+		{"el famoso txistu", "eu"},         // lone Spanish article loses to strong Basque digraph
+		{"el famoso txistu vasco español", "es"}, // several Spanish words overcome txistu
+		{"Go Programming en español", "es"}, // Spanish words at end win
+		{"Git eta GitHub artean", "eu"},    // Basque context with technical terms
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.query, func(t *testing.T) {
+			got := detectQueryLang(tt.query)
+			if got != tt.want {
+				t.Errorf("detectQueryLang(%q) = %q, want %q", tt.query, got, tt.want)
+			}
+		})
+	}
 }

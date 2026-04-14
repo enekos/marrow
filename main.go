@@ -128,6 +128,7 @@ func doServe(logger *slog.Logger) {
 		var req struct {
 			Query string `json:"q"`
 			Limit int    `json:"limit"`
+			Lang  string `json:"lang"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Bad Request", http.StatusBadRequest)
@@ -140,7 +141,7 @@ func doServe(logger *slog.Logger) {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 
-		results, err := engine.Search(ctx, req.Query, req.Limit)
+		results, err := engine.Search(ctx, req.Query, req.Lang, req.Limit)
 		if err != nil {
 			logger.Error("search error", "err", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
