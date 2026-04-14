@@ -39,6 +39,7 @@ func doSync(logger *slog.Logger) {
 	dir := fs.String("dir", ".", "Directory to crawl for markdown files")
 	dbPath := fs.String("db", "marrow.db", "Path to SQLite database")
 	source := fs.String("source", "local", "Source identifier for this directory")
+	defaultLang := fs.String("default-lang", "en", "Default language for documents without frontmatter lang")
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		logger.Error("parse flags", "err", err)
 		os.Exit(1)
@@ -52,9 +53,10 @@ func doSync(logger *slog.Logger) {
 	defer database.Close()
 
 	orch := &sync.Orchestrator{
-		DB:      database,
-		EmbedFn: embed.NewMock(),
-		Source:  *source,
+		DB:          database,
+		EmbedFn:     embed.NewMock(),
+		Source:      *source,
+		DefaultLang: *defaultLang,
 	}
 	ctx := context.Background()
 	if err := orch.RunLocal(ctx, *dir); err != nil {
@@ -73,6 +75,8 @@ func doServe(logger *slog.Logger) {
 	webhookSecret := fs.String("webhook-secret", "", "Secret key for /webhook endpoint")
 	source := fs.String("source", "github", "Source identifier for repo sync state")
 	localPath := fs.String("local-path", "./repo", "Local directory to clone repo into")
+	detectLang := fs.Bool("detect-lang", true, "Enable automatic language detection for search queries")
+	defaultLang := fs.String("default-lang", "en", "Default language when detection is disabled or no lang hint is provided")
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		logger.Error("parse flags", "err", err)
 		os.Exit(1)
@@ -86,6 +90,8 @@ func doServe(logger *slog.Logger) {
 	defer database.Close()
 
 	engine := search.NewEngine(database, embed.NewMock())
+	engine.DetectLang = *detectLang
+	engine.DefaultLang = *defaultLang
 
 	// Persist webhook secret / repo config
 	if *webhookSecret != "" || *repoURL != "" {
@@ -106,9 +112,10 @@ func doServe(logger *slog.Logger) {
 	if *repoURL != "" {
 		go func() {
 			orch := &sync.Orchestrator{
-				DB:      database,
-				EmbedFn: embed.NewMock(),
-				Source:  *source,
+				DB:          database,
+				EmbedFn:     embed.NewMock(),
+				Source:      *source,
+				DefaultLang: *defaultLang,
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
@@ -174,9 +181,10 @@ func doServe(logger *slog.Logger) {
 		// Trigger background sync
 		go func() {
 			orch := &sync.Orchestrator{
-				DB:      database,
-				EmbedFn: embed.NewMock(),
-				Source:  *source,
+				DB:          database,
+				EmbedFn:     embed.NewMock(),
+				Source:      *source,
+				DefaultLang: *defaultLang,
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()

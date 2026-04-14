@@ -27,12 +27,14 @@ Visit the [Releases](https://github.com/enekos/marrow/releases) page, pick the a
 ```bash
 # Index a local directory of markdown files
 make run-sync
-# or: go run -tags sqlite_fts5 . sync -dir ./docs -db marrow.db -source local
+# or: go run -tags sqlite_fts5 . sync -dir ./docs -db marrow.db -source local -default-lang en
 
 # Start the search API (with optional GitHub repo sync)
 go run -tags sqlite_fts5 . serve \
   -db marrow.db \
   -addr :8080 \
+  -detect-lang=true \
+  -default-lang en \
   -repo-url https://github.com/owner/private-repo \
   -repo-token $GITHUB_TOKEN \
   -webhook-secret $WEBHOOK_SECRET \
@@ -52,6 +54,11 @@ go run -tags sqlite_fts5 . serve \
   "lang": "en"
 }
 ```
+
+When the JSON request does not include `lang`, the server uses automatic language detection by default. You can disable detection and force a default language with the `-detect-lang` and `-default-lang` CLI flags:
+
+- `-detect-lang` — Enable or disable automatic query-language detection (default: `true`).
+- `-default-lang` — Fallback language code used when detection is disabled or when a document has no `lang` frontmatter (default: `en`, supported: `en`, `es`, `eu`).
 
 ### Webhook
 `POST /webhook`

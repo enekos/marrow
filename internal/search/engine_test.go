@@ -87,6 +87,95 @@ func mustEmbed(fn embed.Func, text string) []float32 {
 	return v
 }
 
+func TestSearch_DetectLangOption(t *testing.T) {
+	ctx := context.Background()
+	database := setupTestDB(t)
+	ix := index.NewIndexer(database)
+	embedFn := embed.NewMock()
+
+	docs := []index.Document{
+		{Path: "/en.md", Hash: "1", Title: "Coding Guide", Lang: "en", Source: "test", StemmedText: "code guid", Embedding: mustEmbed(embedFn, "coding guide")},
+		{Path: "/es.md", Hash: "2", Title: "Programación", Lang: "es", Source: "test", StemmedText: "gui program", Embedding: mustEmbed(embedFn, "guía de programación")},
+	}
+	for _, d := range docs {
+		if err := ix.Index(ctx, d); err != nil {
+			t.Fatalf("index doc: %v", err)
+		}
+	}
+
+	engineOn := NewEngine(database, embedFn)
+	resultsOn, err := engineOn.Search(ctx, "programación", "", 10)
+	if err != nil {
+		t.Fatalf("search with detection on: %v", err)
+	}
+	if len(resultsOn) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(resultsOn))
+	}
+	if resultsOn[0].Title != "Programación" {
+		t.Errorf("expected 'Programación' first with detection on, got %s", resultsOn[0].Title)
+	}
+
+	engineOff := NewEngine(database, embedFn)
+	engineOff.DetectLang = false
+	engineOff.DefaultLang = "en"
+	resultsOff, err := engineOff.Search(ctx, "programación", "", 10)
+	if err != nil {
+		t.Fatalf("search with detection off: %v", err)
+	}
+	if len(resultsOff) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(resultsOff))
+	}
+
+	var scoreOn, scoreOff float64
+	for _, r := range resultsOn {
+		if r.Title == "Programación" {
+			scoreOn = r.Score
+		}
+	}
+	for _, r := range resultsOff {
+		if r.Title == "Programación" {
+			scoreOff = r.Score
+		}
+	}
+	if scoreOn <= scoreOff {
+		t.Errorf("expected higher score for 'Programación' with detection on (%f) than off (%f)", scoreOn, scoreOff)
+	}
+}
+
+func TestSearch_DefaultLang(t *testing.T) {
+	ctx := context.Background()
+	database := setupTestDB(t)
+	ix := index.NewIndexer(database)
+	embedFn := embed.NewMock()
+
+	docs := []index.Document{
+		{Path: "/en.md", Hash: "1", Title: "Coding Guide", Lang: "en", Source: "test", StemmedText: "code guid", Embedding: mustEmbed(embedFn, "coding guide")},
+		{Path: "/es.md", Hash: "2", Title: "Programación", Lang: "es", Source: "test", StemmedText: "gui program", Embedding: mustEmbed(embedFn, "guía de programación")},
+	}
+	for _, d := range docs {
+		if err := ix.Index(ctx, d); err != nil {
+			t.Fatalf("index doc: %v", err)
+		}
+	}
+
+	engine := NewEngine(database, embedFn)
+	engine.DetectLang = false
+	engine.DefaultLang = "es"
+	results, err := engine.Search(ctx, "programación", "", 10)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatalf("expected results")
+	}
+	if results[0].Title != "Programación" {
+		t.Errorf("expected 'Programación' first with default-lang=es, got %s", results[0].Title)
+	}
+	if results[0].Score <= 0.018 {
+		t.Errorf("expected boosted score for 'Programación' with default-lang=es, got %f", results[0].Score)
+	}
+}
+
 func TestDetectQueryLang(t *testing.T) {
 	tests := []struct {
 		query string

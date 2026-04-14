@@ -24,8 +24,10 @@ type Result struct {
 
 // Engine executes hybrid search queries.
 type Engine struct {
-	db      *db.DB
-	embedFn embed.Func
+	db          *db.DB
+	embedFn     embed.Func
+	DetectLang  bool
+	DefaultLang string
 }
 
 // NewEngine creates a search engine.
@@ -34,8 +36,10 @@ func NewEngine(database *db.DB, embedFn embed.Func) *Engine {
 		embedFn = embed.NewMock()
 	}
 	return &Engine{
-		db:      database,
-		embedFn: embedFn,
+		db:          database,
+		embedFn:     embedFn,
+		DetectLang:  true,
+		DefaultLang: "en",
 	}
 }
 
@@ -53,7 +57,14 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	// Use default language for query stemming (frontmatter not available for queries)
 	lang := langHint
 	if lang == "" {
-		lang = detectQueryLang(query)
+		if e.DetectLang {
+			lang = detectQueryLang(query)
+		} else {
+			lang = e.DefaultLang
+		}
+	}
+	if lang == "" {
+		lang = "en"
 	}
 	stemmedQuery := stemmer.StemText(query, lang)
 	stemmedTokens := strings.Fields(stemmedQuery)
@@ -271,6 +282,7 @@ func detectQueryLang(query string) string {
 		"nire": {}, "zure": {}, "haren": {}, "gure": {}, "zuen": {}, "haien": {},
 		"da": {}, "dago": {}, "daude": {}, "du": {}, "ditu": {}, "dute": {},
 		"izan": {}, "egin": {}, "bat": {}, "bi": {}, "guzti": {}, "gutxi": {},
+		"donostia": {}, "kalean": {}, "kale": {}, "kaleak": {},
 		"oso": {}, "inoiz": {}, "beti": {}, "hemen": {}, "han": {}, "hortxe": {},
 		"honela": {}, "euskal": {}, "euskara": {}, "herri": {}, "etxe": {},
 		"etxea": {}, "izena": {}, "urte": {}, "egun": {}, "baietz": {}, "ezetz": {},

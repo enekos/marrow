@@ -19,9 +19,16 @@ type Document struct {
 }
 
 // Parse extracts frontmatter and plain text from Markdown content.
+// It defaults the language to "en" when no frontmatter lang is present.
 func Parse(source []byte) (Document, error) {
+	return ParseWithDefault(source, "en")
+}
+
+// ParseWithDefault extracts frontmatter and plain text from Markdown content.
+// It uses defaultLang when no frontmatter lang is present.
+func ParseWithDefault(source []byte, defaultLang string) (Document, error) {
 	var doc Document
-	doc.Lang = "en" // default
+	doc.Lang = defaultLang
 
 	body, err := extractFrontmatter(source, &doc)
 	if err != nil {

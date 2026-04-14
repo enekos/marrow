@@ -19,9 +19,10 @@ import (
 
 // Orchestrator coordinates indexing for a given source.
 type Orchestrator struct {
-	DB      *db.DB
-	EmbedFn embed.Func
-	Source  string
+	DB          *db.DB
+	EmbedFn     embed.Func
+	Source      string
+	DefaultLang string
 }
 
 // RunLocal performs an incremental sync over a local directory tree.
@@ -127,7 +128,11 @@ func (o *Orchestrator) indexFiles(ctx context.Context, paths []string) error {
 		if err != nil {
 			return fmt.Errorf("read %s: %w", p, err)
 		}
-		md, err := markdown.Parse(data)
+		defaultLang := o.DefaultLang
+		if defaultLang == "" {
+			defaultLang = "en"
+		}
+		md, err := markdown.ParseWithDefault(data, defaultLang)
 		if err != nil {
 			return fmt.Errorf("parse %s: %w", p, err)
 		}
