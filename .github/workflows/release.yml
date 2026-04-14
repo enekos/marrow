@@ -1,0 +1,117 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build linux/amd64
+        run: |
+          mkdir -p dist/prebuilt/linux_amd64
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC="zig cc -target x86_64-linux-gnu" \
+            go build -tags sqlite_fts5 -ldflags="-s -w" -o dist/prebuilt/linux_amd64/marrow .
+      - name: Build linux/arm64
+        run: |
+          mkdir -p dist/prebuilt/linux_arm64
+          CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC="zig cc -target aarch64-linux-gnu" \
+            go build -tags sqlite_fts5 -ldflags="-s -w" -o dist/prebuilt/linux_arm64/marrow .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64-binary
+          path: dist/prebuilt/linux_amd64/marrow
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm64-binary
+          path: dist/prebuilt/linux_arm64/marrow
+
+  build-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build windows/amd64
+        run: |
+          mkdir -p dist/prebuilt/windows_amd64
+          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC="zig cc -target x86_64-windows-gnu" \
+            go build -tags sqlite_fts5 -ldflags="-s -w" -o dist/prebuilt/windows_amd64/marrow.exe .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-amd64-binary
+          path: dist/prebuilt/windows_amd64/marrow.exe
+
+  build-darwin-amd64:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build darwin/amd64
+        run: |
+          mkdir -p dist/prebuilt/darwin_amd64
+          CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -tags sqlite_fts5 -ldflags="-s -w" -o dist/prebuilt/darwin_amd64/marrow .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: darwin-amd64-binary
+          path: dist/prebuilt/darwin_amd64/marrow
+
+  build-darwin-arm64:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build darwin/arm64
+        run: |
+          mkdir -p dist/prebuilt/darwin_arm64
+          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -tags sqlite_fts5 -ldflags="-s -w" -o dist/prebuilt/darwin_arm64/marrow .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: darwin-arm64-binary
+          path: dist/prebuilt/darwin_arm64/marrow
+
+  release:
+    needs: [build-linux, build-windows, build-darwin-amd64, build-darwin-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: "*-binary"
+          merge-multiple: false
+      - name: Organize prebuilt binaries
+        run: |
+          mkdir -p dist/prebuilt/linux_amd64 dist/prebuilt/linux_arm64 \
+                   dist/prebuilt/windows_amd64 \
+                   dist/prebuilt/darwin_amd64 dist/prebuilt/darwin_arm64
+          cp artifacts/linux-amd64-binary/marrow dist/prebuilt/linux_amd64/marrow
+          cp artifacts/linux-arm64-binary/marrow dist/prebuilt/linux_arm64/marrow
+          cp artifacts/windows-amd64-binary/marrow.exe dist/prebuilt/windows_amd64/marrow.exe
+          cp artifacts/darwin-amd64-binary/marrow dist/prebuilt/darwin_amd64/marrow
+          cp artifacts/darwin-arm64-binary/marrow dist/prebuilt/darwin_arm64/marrow
+          chmod +x dist/prebuilt/linux_amd64/marrow dist/prebuilt/linux_arm64/marrow
+          chmod +x dist/prebuilt/darwin_amd64/marrow dist/prebuilt/darwin_arm64/marrow
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

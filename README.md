@@ -2,6 +2,26 @@
 
 Marrow is a local-first, hybrid search engine for Markdown repositories. It combines full-text search (FTS5) with vector similarity (sqlite-vec) in a single SQLite database.
 
+## Installation (no Go required)
+
+### macOS & Linux — one-liner install
+
+```bash
+curl -sSL https://raw.githubusercontent.com/enekos/marrow/main/install.sh | sh
+```
+
+This downloads the latest release for your platform and copies the `marrow` binary into `~/.local/bin` (or `/usr/local/bin` if writable).
+
+### Windows
+
+1. Go to the [Releases](https://github.com/enekos/marrow/releases) page.
+2. Download `marrow_vX.Y.Z_windows_amd64.zip`.
+3. Extract `marrow.exe` and place it in a folder on your `PATH`.
+
+### Manual download
+
+Visit the [Releases](https://github.com/enekos/marrow/releases) page, pick the archive matching your OS and architecture, extract it, and move the `marrow` binary to a directory on your `PATH`.
+
 ## Commands
 
 ```bash
