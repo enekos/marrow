@@ -21,6 +21,7 @@ jobs:
           version: 0.13.0
       - name: Build linux/amd64
         run: |
+          go mod download
           mkdir -p dist/prebuilt/linux_amd64 tmp_include
           SQLITE_MOD=$(go env GOMODCACHE)/github.com/mattn/go-sqlite3@v1.14.42
           cp "$SQLITE_MOD/sqlite3-binding.h" tmp_include/sqlite3.h
@@ -30,6 +31,7 @@ jobs:
             go build -tags sqlite_fts5 -ldflags="-s -w" -o dist/prebuilt/linux_amd64/marrow .
       - name: Build linux/arm64
         run: |
+          go mod download
           mkdir -p dist/prebuilt/linux_arm64 tmp_include
           SQLITE_MOD=$(go env GOMODCACHE)/github.com/mattn/go-sqlite3@v1.14.42
           cp "$SQLITE_MOD/sqlite3-binding.h" tmp_include/sqlite3.h
@@ -58,6 +60,7 @@ jobs:
           version: 0.13.0
       - name: Build windows/amd64
         run: |
+          go mod download
           mkdir -p dist/prebuilt/windows_amd64 tmp_include
           SQLITE_MOD=$(go env GOMODCACHE)/github.com/mattn/go-sqlite3@v1.14.42
           cp "$SQLITE_MOD/sqlite3-binding.h" tmp_include/sqlite3.h
