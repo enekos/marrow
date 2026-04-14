@@ -21,13 +21,21 @@ jobs:
           version: 0.13.0
       - name: Build linux/amd64
         run: |
-          mkdir -p dist/prebuilt/linux_amd64
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC="zig cc -target x86_64-linux-gnu" \
+          mkdir -p dist/prebuilt/linux_amd64 tmp_include
+          SQLITE_MOD=$(go env GOMODCACHE)/github.com/mattn/go-sqlite3@v1.14.42
+          cp "$SQLITE_MOD/sqlite3-binding.h" tmp_include/sqlite3.h
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+            CC="zig cc -target x86_64-linux-gnu" \
+            CGO_CFLAGS="-I$(pwd)/tmp_include" \
             go build -tags sqlite_fts5 -ldflags="-s -w" -o dist/prebuilt/linux_amd64/marrow .
       - name: Build linux/arm64
         run: |
-          mkdir -p dist/prebuilt/linux_arm64
-          CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC="zig cc -target aarch64-linux-gnu" \
+          mkdir -p dist/prebuilt/linux_arm64 tmp_include
+          SQLITE_MOD=$(go env GOMODCACHE)/github.com/mattn/go-sqlite3@v1.14.42
+          cp "$SQLITE_MOD/sqlite3-binding.h" tmp_include/sqlite3.h
+          CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
+            CC="zig cc -target aarch64-linux-gnu" \
+            CGO_CFLAGS="-I$(pwd)/tmp_include" \
             go build -tags sqlite_fts5 -ldflags="-s -w" -o dist/prebuilt/linux_arm64/marrow .
       - uses: actions/upload-artifact@v4
         with:
@@ -50,8 +58,12 @@ jobs:
           version: 0.13.0
       - name: Build windows/amd64
         run: |
-          mkdir -p dist/prebuilt/windows_amd64
-          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC="zig cc -target x86_64-windows-gnu" \
+          mkdir -p dist/prebuilt/windows_amd64 tmp_include
+          SQLITE_MOD=$(go env GOMODCACHE)/github.com/mattn/go-sqlite3@v1.14.42
+          cp "$SQLITE_MOD/sqlite3-binding.h" tmp_include/sqlite3.h
+          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 \
+            CC="zig cc -target x86_64-windows-gnu" \
+            CGO_CFLAGS="-I$(pwd)/tmp_include" \
             go build -tags sqlite_fts5 -ldflags="-s -w" -o dist/prebuilt/windows_amd64/marrow.exe .
       - uses: actions/upload-artifact@v4
         with:
