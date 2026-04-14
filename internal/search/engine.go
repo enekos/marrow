@@ -40,7 +40,8 @@ func NewEngine(database *db.DB, embedFn embed.Func) *Engine {
 }
 
 // Search runs a hybrid query and returns ranked results.
-func (e *Engine) Search(ctx context.Context, query string, limit int) ([]Result, error) {
+// If langHint is non-empty, it overrides language detection for stemming.
+func (e *Engine) Search(ctx context.Context, query string, langHint string, limit int) ([]Result, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -50,7 +51,10 @@ func (e *Engine) Search(ctx context.Context, query string, limit int) ([]Result,
 	}
 
 	// Use default language for query stemming (frontmatter not available for queries)
-	lang := detectQueryLang(query)
+	lang := langHint
+	if lang == "" {
+		lang = detectQueryLang(query)
+	}
 	stemmedQuery := stemmer.StemText(query, lang)
 	stemmedTokens := strings.Fields(stemmedQuery)
 
@@ -136,9 +140,9 @@ func (e *Engine) Search(ctx context.Context, query string, limit int) ([]Result,
 	// 4. Fetch metadata and apply title boost using stemmed token overlap
 	results := make([]Result, 0, len(scoredDocs))
 	for _, s := range scoredDocs {
-		var path, title string
+		var path, title, docLang string
 		err := e.db.QueryRowContext(ctx,
-			`SELECT path, title FROM documents WHERE id = ?`, s.id).Scan(&path, &title)
+			`SELECT path, title, lang FROM documents WHERE id = ?`, s.id).Scan(&path, &title, &docLang)
 		if err == sql.ErrNoRows {
 			continue
 		}
@@ -146,7 +150,7 @@ func (e *Engine) Search(ctx context.Context, query string, limit int) ([]Result,
 			return nil, err
 		}
 		score := s.score
-		if hasTokenOverlap(stemmer.StemText(title, lang), stemmedTokens) {
+		if hasTokenOverlap(stemmer.StemText(title, docLang), stemmedTokens) {
 			score *= 1.2
 		}
 		results = append(results, Result{
@@ -191,13 +195,141 @@ func hasTokenOverlap(stemmedText string, stemmedTokens []string) bool {
 }
 
 func detectQueryLang(query string) string {
-	// Very naive heuristic: check for common Spanish-specific characters/words.
 	lower := strings.ToLower(query)
-	spanishMarkers := []string{"ñ", "á", "é", "í", "ó", "ú", "ü", "¿", "¡"}
-	for _, m := range spanishMarkers {
-		if strings.Contains(lower, m) {
-			return "es"
+	tokens := stemmer.Tokenize(query)
+
+	const (
+		idxEn = 0
+		idxEs = 1
+		idxEu = 2
+	)
+	var scores [3]int
+
+	// --- Character-level signals ------------------------------------------
+	for _, r := range lower {
+		switch r {
+		case 'ñ', '¿', '¡':
+			scores[idxEs] += 10
+		case 'á', 'é', 'í', 'ó', 'ú', 'ü':
+			scores[idxEs] += 5
 		}
 	}
-	return "en"
+	// tx is extremely rare in English/Spanish; tz is also strongly Basque.
+	if strings.Contains(lower, "tx") {
+		scores[idxEu] += 5
+	}
+	if strings.Contains(lower, "tz") {
+		scores[idxEu] += 3
+	}
+
+	// --- Word-level signals -----------------------------------------------
+	spanishWords := map[string]struct{}{
+		"el": {}, "la": {}, "los": {}, "las": {},
+		"un": {}, "una": {}, "unos": {}, "unas": {},
+		"de": {}, "del": {}, "al": {}, "y": {}, "o": {}, "pero": {},
+		"sin": {}, "con": {}, "por": {}, "para": {}, "en": {}, "a": {},
+		"ante": {}, "bajo": {}, "desde": {}, "entre": {}, "hacia": {},
+		"hasta": {}, "mediante": {}, "según": {}, "sobre": {}, "tras": {},
+		"durante": {}, "excepto": {}, "salvo": {}, "como": {},
+		"lo": {}, "le": {}, "les": {}, "me": {}, "te": {}, "se": {},
+		"nos": {}, "os": {}, "que": {}, "qué": {}, "quien": {}, "quién": {},
+		"cual": {}, "cuál": {}, "cuales": {}, "cuáles": {}, "cuyo": {},
+		"cuya": {}, "cuyos": {}, "cuyas": {},
+		"donde": {}, "dónde": {}, "cuando": {}, "cuándo": {},
+		"cuanto": {}, "cuánto": {}, "cuanta": {}, "cuánta": {},
+		"es": {}, "son": {}, "está": {}, "están": {}, "estoy": {},
+		"estamos": {}, "estáis": {}, "fue": {}, "fueron": {},
+		"ha": {}, "han": {}, "había": {}, "hay": {},
+		"tengo": {}, "tiene": {}, "tienen": {}, "tenemos": {}, "tenéis": {},
+		"hago": {}, "hace": {}, "hacen": {}, "hacemos": {}, "hacéis": {},
+		"más": {}, "muy": {}, "mucho": {}, "mucha": {}, "muchos": {}, "muchas": {},
+		"poco": {}, "poca": {}, "pocos": {}, "pocas": {},
+		"todo": {}, "todos": {}, "toda": {}, "todas": {},
+		"este": {}, "esta": {}, "estos": {}, "estas": {},
+		"ese": {}, "esa": {}, "esos": {}, "esas": {},
+		"aquel": {}, "aquella": {}, "aquellos": {}, "aquellas": {},
+		"mi": {}, "mis": {}, "tu": {}, "tus": {}, "su": {}, "sus": {},
+		"nuestro": {}, "nuestra": {}, "nuestros": {}, "nuestras": {},
+		"vuestro": {}, "vuestra": {}, "vuestros": {}, "vuestras": {},
+		"si": {}, "sino": {}, "también": {}, "ya": {}, "aún": {},
+		"todavía": {}, "siempre": {}, "nunca": {}, "jamás": {},
+		"aquí": {}, "ahí": {}, "allí": {}, "acá": {}, "allá": {},
+		"ahora": {}, "antes": {}, "después": {}, "luego": {},
+		"pronto": {}, "tarde": {}, "temprano": {},
+		"bien": {}, "mal": {}, "mejor": {}, "peor": {},
+		"cómo": {}, "porqué": {}, "porque": {}, "pues": {},
+		"sí": {}, "no": {},
+	}
+
+	basqueWords := map[string]struct{}{
+		"eta": {}, "edo": {}, "baina": {}, "ez": {}, "bai": {}, "ere": {},
+		"bestela": {}, "gainera": {}, "beraz": {}, "ala": {}, "bada": {},
+		"hura": {}, "hau": {}, "berori": {}, "hori": {},
+		"nor": {}, "zer": {}, "nork": {}, "nori": {}, "noren": {},
+		"non": {}, "nola": {}, "noiz": {}, "zergatik": {}, "zenbat": {},
+		"ni": {}, "zu": {}, "gu": {}, "zuek": {}, "haiek": {},
+		"nire": {}, "zure": {}, "haren": {}, "gure": {}, "zuen": {}, "haien": {},
+		"da": {}, "dago": {}, "daude": {}, "du": {}, "ditu": {}, "dute": {},
+		"izan": {}, "egin": {}, "bat": {}, "bi": {}, "guzti": {}, "gutxi": {},
+		"oso": {}, "inoiz": {}, "beti": {}, "hemen": {}, "han": {}, "hortxe": {},
+		"honela": {}, "euskal": {}, "euskara": {}, "herri": {}, "etxe": {},
+		"etxea": {}, "izena": {}, "urte": {}, "egun": {}, "baietz": {}, "ezetz": {},
+		"alde": {}, "arte": {}, "aurka": {}, "bezala": {}, "gisa": {},
+		"kontra": {}, "ondo": {}, "zai": {}, "aurre": {}, "bitartean": {},
+		"tartean": {}, "barruan": {}, "kanpoan": {}, "gainean": {},
+		"azpian": {}, "aurrean": {}, "atzean": {}, "ondoren": {},
+		"lehen": {}, "gero": {}, "orduan": {}, "orain": {},
+	}
+
+	englishWords := map[string]struct{}{
+		"the": {}, "a": {}, "an": {}, "is": {}, "are": {}, "was": {}, "were": {},
+		"be": {}, "been": {}, "being": {}, "have": {}, "has": {}, "had": {}, "do": {},
+		"does": {}, "did": {}, "will": {}, "would": {}, "shall": {}, "should": {},
+		"can": {}, "could": {}, "may": {}, "might": {}, "must": {}, "ought": {},
+		"i": {}, "you": {}, "he": {}, "she": {}, "it": {}, "we": {}, "they": {},
+		"me": {}, "him": {}, "her": {}, "us": {}, "them": {}, "my": {}, "your": {},
+		"his": {}, "its": {}, "our": {}, "their": {}, "this": {}, "that": {},
+		"these": {}, "those": {}, "of": {}, "in": {}, "to": {}, "for": {}, "with": {},
+		"on": {}, "at": {}, "by": {}, "from": {}, "as": {}, "into": {}, "through": {},
+		"during": {}, "before": {}, "after": {}, "above": {}, "below": {}, "between": {},
+		"and": {}, "but": {}, "or": {}, "yet": {}, "so": {}, "if": {}, "because": {},
+		"although": {}, "though": {}, "while": {}, "where": {}, "when": {},
+		"which": {}, "who": {}, "whom": {}, "whose": {}, "what": {}, "whatever": {},
+		"not": {}, "no": {}, "yes": {}, "there": {}, "then": {}, "than": {},
+		"here": {}, "how": {}, "why": {}, "all": {}, "any": {}, "both": {},
+		"each": {}, "few": {}, "more": {}, "most": {}, "other": {}, "some": {},
+		"such": {}, "only": {}, "own": {}, "same": {}, "too": {}, "very": {},
+		"just": {}, "now": {}, "also": {}, "back": {}, "still": {}, "already": {},
+		"even": {}, "once": {}, "twice": {}, "again": {}, "always": {}, "never": {},
+		"often": {}, "sometimes": {}, "usually": {}, "really": {}, "actually": {},
+		"probably": {}, "maybe": {}, "perhaps": {}, "sure": {}, "well": {},
+		"good": {}, "bad": {}, "new": {}, "old": {}, "first": {}, "last": {},
+		"long": {}, "great": {}, "little": {}, "right": {}, "left": {}, "big": {},
+		"small": {}, "large": {}, "next": {}, "early": {}, "young": {},
+		"important": {}, "different": {}, "following": {}, "public": {}, "able": {},
+	}
+
+	for _, tok := range tokens {
+		if _, ok := spanishWords[tok]; ok {
+			scores[idxEs] += 2
+		}
+		if _, ok := basqueWords[tok]; ok {
+			scores[idxEu] += 2
+		}
+		if _, ok := englishWords[tok]; ok {
+			scores[idxEn] += 2
+		}
+	}
+
+	// --- Resolve winner ---------------------------------------------------
+	maxScore := scores[idxEn]
+	lang := "en"
+	if scores[idxEs] > maxScore {
+		maxScore = scores[idxEs]
+		lang = "es"
+	}
+	if scores[idxEu] > maxScore {
+		lang = "eu"
+	}
+	return lang
 }

@@ -28,7 +28,8 @@ go run -tags sqlite_fts5 . serve \
 ```json
 {
   "q": "go best practices",
-  "limit": 10
+  "limit": 10,
+  "lang": "en"
 }
 ```
 
@@ -57,7 +58,7 @@ make test
 - `internal/gitpull` — clones or pulls GitHub repos with token auth; returns changed file list
 - `internal/sync` — orchestrates the full ingestion pipeline and deletes stale docs
 - `internal/markdown` — extracts YAML frontmatter and plain text via goldmark
-- `internal/stemmer` — Unicode-aware tokenization, stopword removal, Snowball stemming (en/es)
+- `internal/stemmer` — Unicode-aware tokenization, stopword removal, Snowball stemming (en/es/eu)
 - `internal/embed` — deterministic mock embeddings (stable 384-dim vectors)
 - `internal/db` — SQLite schema with `fts5`, `sqlite-vec`, and `sync_state` table
 - `internal/index` — ingestion pipeline with source tracking
@@ -71,5 +72,5 @@ make test
 ## Notes
 
 - Build requires `-tags sqlite_fts5` because FTS5 is gated behind a build tag in `mattn/go-sqlite3`.
-- `blevesearch/snowball` is pure Go but only supports English and Spanish. Basque (`eu`) falls back to simple lowercasing.
+- Stemming is implemented in pure Go: English (Porter2), Spanish (Snowball), and Basque (Snowball). No external NLP services required.
 - Embeddings are deterministic mocks derived from SHA-256 hashes, making the project zero-config and fully testable without external services.
