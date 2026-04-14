@@ -1,0 +1,84 @@
+version: 2
+project_name: marrow
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: linux-amd64
+    builder: prebuilt
+    goos:
+      - linux
+    goarch:
+      - amd64
+    binary: marrow
+    prebuilt:
+      path: dist/prebuilt/linux_amd64/marrow
+  - id: linux-arm64
+    builder: prebuilt
+    goos:
+      - linux
+    goarch:
+      - arm64
+    binary: marrow
+    prebuilt:
+      path: dist/prebuilt/linux_arm64/marrow
+  - id: windows-amd64
+    builder: prebuilt
+    goos:
+      - windows
+    goarch:
+      - amd64
+    binary: marrow
+    prebuilt:
+      path: dist/prebuilt/windows_amd64/marrow.exe
+  - id: darwin-amd64
+    builder: prebuilt
+    goos:
+      - darwin
+    goarch:
+      - amd64
+    binary: marrow
+    prebuilt:
+      path: dist/prebuilt/darwin_amd64/marrow
+  - id: darwin-arm64
+    builder: prebuilt
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    binary: marrow
+    prebuilt:
+      path: dist/prebuilt/darwin_arm64/marrow
+
+universal_binaries:
+  - ids: [darwin-amd64, darwin-arm64]
+    name_template: marrow
+    replace: true
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+release:
+  github:
+    owner: enekos
+    name: marrow
