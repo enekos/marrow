@@ -16,6 +16,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.13.0
       - name: Build linux/amd64
         run: |
           mkdir -p dist/prebuilt/linux_amd64
@@ -42,6 +45,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.13.0
       - name: Build windows/amd64
         run: |
           mkdir -p dist/prebuilt/windows_amd64
@@ -52,8 +58,8 @@ jobs:
           name: windows-amd64-binary
           path: dist/prebuilt/windows_amd64/marrow.exe
 
-  build-darwin-amd64:
-    runs-on: macos-13
+  build-darwin:
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -63,29 +69,21 @@ jobs:
         run: |
           mkdir -p dist/prebuilt/darwin_amd64
           CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -tags sqlite_fts5 -ldflags="-s -w" -o dist/prebuilt/darwin_amd64/marrow .
-      - uses: actions/upload-artifact@v4
-        with:
-          name: darwin-amd64-binary
-          path: dist/prebuilt/darwin_amd64/marrow
-
-  build-darwin-arm64:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
       - name: Build darwin/arm64
         run: |
           mkdir -p dist/prebuilt/darwin_arm64
           CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -tags sqlite_fts5 -ldflags="-s -w" -o dist/prebuilt/darwin_arm64/marrow .
       - uses: actions/upload-artifact@v4
         with:
+          name: darwin-amd64-binary
+          path: dist/prebuilt/darwin_amd64/marrow
+      - uses: actions/upload-artifact@v4
+        with:
           name: darwin-arm64-binary
           path: dist/prebuilt/darwin_arm64/marrow
 
   release:
-    needs: [build-linux, build-windows, build-darwin-amd64, build-darwin-arm64]
+    needs: [build-linux, build-windows, build-darwin]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
