@@ -24,7 +24,7 @@ jobs:
           go mod download
           mkdir -p dist/prebuilt/linux_amd64 tmp_include
           SQLITE_MOD=$(go env GOMODCACHE)/github.com/mattn/go-sqlite3@v1.14.42
-          cp "$SQLITE_MOD/sqlite3-binding.h" tmp_include/sqlite3.h
+          cat "$SQLITE_MOD/sqlite3-binding.h" > tmp_include/sqlite3.h
           CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
             CC="zig cc -target x86_64-linux-gnu" \
             CGO_CFLAGS="-I$(pwd)/tmp_include" \
@@ -34,7 +34,7 @@ jobs:
           go mod download
           mkdir -p dist/prebuilt/linux_arm64 tmp_include
           SQLITE_MOD=$(go env GOMODCACHE)/github.com/mattn/go-sqlite3@v1.14.42
-          cp "$SQLITE_MOD/sqlite3-binding.h" tmp_include/sqlite3.h
+          cat "$SQLITE_MOD/sqlite3-binding.h" > tmp_include/sqlite3.h
           CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
             CC="zig cc -target aarch64-linux-gnu" \
             CGO_CFLAGS="-I$(pwd)/tmp_include" \
@@ -63,7 +63,7 @@ jobs:
           go mod download
           mkdir -p dist/prebuilt/windows_amd64 tmp_include
           SQLITE_MOD=$(go env GOMODCACHE)/github.com/mattn/go-sqlite3@v1.14.42
-          cp "$SQLITE_MOD/sqlite3-binding.h" tmp_include/sqlite3.h
+          cat "$SQLITE_MOD/sqlite3-binding.h" > tmp_include/sqlite3.h
           CGO_ENABLED=1 GOOS=windows GOARCH=amd64 \
             CC="zig cc -target x86_64-windows-gnu" \
             CGO_CFLAGS="-I$(pwd)/tmp_include" \
