@@ -1,0 +1,26 @@
+[
+  {
+    "title": "Go Best Practices",
+    "score": 0.475678
+  },
+  {
+    "title": "Go Introduction",
+    "score": 0.473995
+  },
+  {
+    "title": "Go Modules Guide",
+    "score": 0.471693
+  },
+  {
+    "title": "Old Go Tutorial",
+    "score": 0.450759
+  },
+  {
+    "title": "Python AsyncIO",
+    "score": 0.049733
+  },
+  {
+    "title": "The Rust Programming Language",
+    "score": 0.049247
+  }
+]

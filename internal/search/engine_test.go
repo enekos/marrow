@@ -2,12 +2,18 @@ package search
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"math"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"marrow/internal/db"
 	"marrow/internal/embed"
 	"marrow/internal/index"
+	"marrow/internal/testutil"
 )
 
 func setupTestDB(t *testing.T) *db.DB {
@@ -40,7 +46,7 @@ func TestSearch_HybridRankingAndTitleBoost(t *testing.T) {
 
 	engine := NewEngine(database, embedFn)
 
-	// Search for "go" — all three docs contain it, but /a.md and /c.md have "go" in title.
+	// Search for "go" — docs /a.md and /c.md have "go" in title.
 	results, err := engine.Search(ctx, "go", "", 10)
 	if err != nil {
 		t.Fatalf("search: %v", err)
@@ -239,4 +245,223 @@ func TestDetectQueryLang(t *testing.T) {
 			}
 		})
 	}
+}
+
+// -----------------------------------------------------------------------------
+// Approved-truth (golden-file) tests
+// -----------------------------------------------------------------------------
+
+func TestSearch_RankingApproved(t *testing.T) {
+	ctx := context.Background()
+	database := setupTestDB(t)
+	ix := index.NewIndexer(database)
+	embedFn := embed.NewMock()
+
+	now := time.Now()
+	docs := []index.Document{
+		{Path: "/go-intro.md", Hash: "1", Title: "Go Introduction", Lang: "en", Source: "test", StemmedText: "go introduct languag program", Embedding: mustEmbed(embedFn, "go introduction language programming")},
+		{Path: "/go-modules.md", Hash: "2", Title: "Go Modules Guide", Lang: "en", Source: "test", StemmedText: "go modul guid depend manag", Embedding: mustEmbed(embedFn, "go modules guide dependency management")},
+		{Path: "/rust-book.md", Hash: "3", Title: "The Rust Programming Language", Lang: "en", Source: "test", StemmedText: "rust program languag memori safeti", Embedding: mustEmbed(embedFn, "rust programming language memory safety")},
+		{Path: "/python-async.md", Hash: "4", Title: "Python AsyncIO", Lang: "en", Source: "test", StemmedText: "python asyncio async await program", Embedding: mustEmbed(embedFn, "python asyncio async await programming")},
+		{Path: "/go-best-practices.md", Hash: "5", Title: "Go Best Practices", Lang: "en", Source: "test", StemmedText: "go best practic structur code review", Embedding: mustEmbed(embedFn, "go best practices structure code review")},
+		{Path: "/old-go-tutorial.md", Hash: "6", Title: "Old Go Tutorial", Lang: "en", Source: "test", StemmedText: "go tutori old beginn start languag", Embedding: mustEmbed(embedFn, "go tutorial old beginner start language")},
+	}
+	for _, d := range docs {
+		if err := ix.Index(ctx, d); err != nil {
+			t.Fatalf("index doc: %v", err)
+		}
+	}
+
+	// Override last_modified to create a recency spread.
+	_, err := database.ExecContext(ctx,
+		`UPDATE documents SET last_modified = ? WHERE path = ?`,
+		now.Add(-200*24*time.Hour), "/old-go-tutorial.md")
+	if err != nil {
+		t.Fatalf("update last_modified: %v", err)
+	}
+	_, err = database.ExecContext(ctx,
+		`UPDATE documents SET last_modified = ? WHERE path = ?`,
+		now.Add(-2*24*time.Hour), "/go-modules.md")
+	if err != nil {
+		t.Fatalf("update last_modified: %v", err)
+	}
+
+	engine := NewEngine(database, embedFn)
+
+	queries := []string{"go", "go modules", "programming language"}
+	for _, q := range queries {
+		q := q
+		t.Run(strings.ReplaceAll(q, " ", "_"), func(t *testing.T) {
+			results, err := engine.Search(ctx, q, "", 10)
+			if err != nil {
+				t.Fatalf("search %q: %v", q, err)
+			}
+			// Strip IDs and paths for stable golden files (scores are the signal).
+			type slim struct {
+				Title string  `json:"title"`
+				Score float64 `json:"score"`
+			}
+			slimmed := make([]slim, len(results))
+			for i, r := range results {
+				// Round to 6 decimals to mask CGO float noise in sqlite-vec distances.
+				slimmed[i] = slim{Title: r.Title, Score: math.Round(r.Score*1e6) / 1e6}
+			}
+			b, err := json.MarshalIndent(slimmed, "", "  ")
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			testutil.VerifyApproved(t, b, q)
+		})
+	}
+}
+
+func TestDetectQueryLang_Approved(t *testing.T) {
+	tests := []struct {
+		query    string
+		expected string
+	}{
+		// English
+		{"the quick brown fox", "en"},
+		{"how to use git", "en"},
+		{"software configuration", "en"},
+		{"Go Programming", "en"},
+		{"a b c", "en"},
+		{"123 456", "en"},
+		{"meta analysis", "en"},
+		{"cats and dogs", "en"},
+		{"next", "en"},
+		{"matrix", "en"},
+		{"how to configure eta", "en"},
+		{"a", "en"},
+		{"i have nothing to declare", "en"},
+		{"this is very important", "en"},
+		{"the following public announcement", "en"},
+		{"can you do that", "en"},
+		{"well done", "en"},
+		{"good bad new old", "en"},
+		{"first last long great", "en"},
+
+		// Spanish
+		{"el libro", "es"},
+		{"la casa", "es"},
+		{"configuración", "es"},
+		{"¿qué es esto?", "es"},
+		{"señor García", "es"},
+		{"cómo funciona esto", "es"},
+		{"qué", "es"},
+		{"ñ", "es"},
+		{"¡hola!", "es"},
+		{"más o menos", "es"},
+		{"who is señor Garcia", "es"},
+		{"el", "es"},
+		{"Go Programming en español", "es"},
+		{"el famoso txistu vasco español", "es"},
+		{"la mejor casa", "es"},
+		{"todos los días", "es"},
+		{"aquí y ahora", "es"},
+		{"bien hecho", "es"},
+		{"porque sí", "es"},
+		{"una persona importante", "es"},
+
+		// Basque
+		{"txistu", "eu"},
+		{"etxe", "eu"},
+		{"hitz", "eu"},
+		{"Euskal Herria", "eu"},
+		{"eta", "eu"},
+		{"ez da", "eu"},
+		{"nire etxea", "eu"},
+		{"tx", "eu"},
+		{"tz", "eu"},
+		{"zer da hau", "eu"},
+		{"Donostia kalean", "eu"},
+		{"el famoso txistu", "eu"},
+		{"Git eta GitHub artean", "eu"},
+		{"hemen eta orain", "eu"},
+		{"nire etxe ondoan", "eu"},
+		{"euskal herriko kaleak", "eu"},
+		{"bat bi gutxi guzti", "eu"},
+		{"inoiz beti hemendik", "eu"},
+		{"non nola noiz zergatik", "eu"},
+
+		// Ambiguous / edge
+		{"", "en"},
+		{"x y z", "en"},
+		{"123", "en"},
+		{"el meta tx", "eu"},
+		{"la matrix tz", "eu"},
+	}
+
+	var sb strings.Builder
+	for _, tt := range tests {
+		got := detectQueryLang(tt.query)
+		status := "OK"
+		if got != tt.expected {
+			status = "FAIL"
+		}
+		fmt.Fprintf(&sb, "%-40s -> %s (want %s) [%s]\n", fmt.Sprintf("%q", tt.query), got, tt.expected, status)
+	}
+	testutil.VerifyApprovedString(t, sb.String())
+}
+
+func TestSearch_ScoreComponentsApproved(t *testing.T) {
+	ctx := context.Background()
+	database := setupTestDB(t)
+	ix := index.NewIndexer(database)
+	embedFn := embed.NewMock()
+
+	now := time.Now()
+	// All docs share the same stemmed text and embedding text so base FTS/vector scores are identical.
+	baseText := "go modules tutorial"
+	baseStemmed := "go modul tutori"
+	baseEmbedding := mustEmbed(embedFn, baseText)
+
+	docs := []index.Document{
+		{Path: "/exact-title-new.md", Hash: "1", Title: "Go Modules", Lang: "en", Source: "test", StemmedText: baseStemmed, Embedding: baseEmbedding},
+		{Path: "/partial-title-new.md", Hash: "2", Title: "Go Tutorial", Lang: "en", Source: "test", StemmedText: baseStemmed, Embedding: baseEmbedding},
+		{Path: "/phrase-old.md", Hash: "3", Title: "Something Else", Lang: "en", Source: "test", StemmedText: baseStemmed, Embedding: baseEmbedding},
+		{Path: "/none-older.md", Hash: "4", Title: "Unrelated Document", Lang: "en", Source: "test", StemmedText: baseStemmed, Embedding: baseEmbedding},
+	}
+	for _, d := range docs {
+		if err := ix.Index(ctx, d); err != nil {
+			t.Fatalf("index doc: %v", err)
+		}
+	}
+
+	// Set recency: exact-title-new is 1 day old, partial-title-new is 1 day old,
+	// phrase-old is 90 days old, none-older is 200 days old.
+	ages := map[string]time.Duration{
+		"/exact-title-new.md":  1 * 24 * time.Hour,
+		"/partial-title-new.md": 1 * 24 * time.Hour,
+		"/phrase-old.md":       90 * 24 * time.Hour,
+		"/none-older.md":       200 * 24 * time.Hour,
+	}
+	for path, age := range ages {
+		_, err := database.ExecContext(ctx,
+			`UPDATE documents SET last_modified = ? WHERE path = ?`,
+			now.Add(-age), path)
+		if err != nil {
+			t.Fatalf("update last_modified: %v", err)
+		}
+	}
+
+	engine := NewEngine(database, embedFn)
+	results, err := engine.Search(ctx, "go modules", "", 10)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+
+	var sb strings.Builder
+	fmt.Fprintln(&sb, "Query: go modules")
+	fmt.Fprintln(&sb, "Expected heuristics:")
+	fmt.Fprintln(&sb, "  1. Go Modules          -> exact title + phrase + new")
+	fmt.Fprintln(&sb, "  2. Go Tutorial         -> partial title + new")
+	fmt.Fprintln(&sb, "  3. Something Else      -> phrase match in content + old")
+	fmt.Fprintln(&sb, "  4. Unrelated Document  -> no boost + oldest")
+	fmt.Fprintln(&sb, "")
+	fmt.Fprintln(&sb, "Actual ranking:")
+	for i, r := range results {
+		fmt.Fprintf(&sb, "%d. %-20s score=%.6f\n", i+1, r.Title, r.Score)
+	}
+	testutil.VerifyApprovedString(t, sb.String())
 }

@@ -6,13 +6,19 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"marrow/internal/db"
 	"marrow/internal/embed"
 	"marrow/internal/stemmer"
 )
 
-const rrfK = 60
+const (
+	rrfK            = 60
+	scoreBlendAlpha = 0.35
+	maxRecencyDays  = 180.0
+	recencyBoostMax = 0.05
+)
 
 // Result represents a single search result.
 type Result struct {
@@ -54,6 +60,9 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 		return []Result{}, nil
 	}
 
+	// Preserve phrase for exact-match boosting, but use unquoted text for embedding.
+	phrase := stripOuterQuotes(query)
+
 	// Use default language for query stemming (frontmatter not available for queries)
 	lang := langHint
 	if lang == "" {
@@ -70,7 +79,11 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	stemmedTokens := strings.Fields(stemmedQuery)
 
 	// Generate query embedding
-	qvec, err := e.embedFn(ctx, query)
+	embedText := query
+	if phrase != query {
+		embedText = phrase
+	}
+	qvec, err := e.embedFn(ctx, embedText)
 	if err != nil {
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
@@ -79,10 +92,15 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 		return nil, fmt.Errorf("serialize query vec: %w", err)
 	}
 
-	// 1. Query FTS5 and build rank map
-	ftsRanks := make(map[int64]int)
+	// 1. Query FTS5 and build rank map with BM25 scores
+	type ftsInfo struct {
+		rank int
+		bm25 float64
+	}
+	ftsInfos := make(map[int64]ftsInfo)
+	var ftsOrder []int64
 	ftsRows, err := e.db.QueryContext(ctx,
-		`SELECT rowid FROM documents_fts WHERE documents_fts MATCH ? ORDER BY bm25(documents_fts) LIMIT ?`,
+		`SELECT rowid, bm25(documents_fts) FROM documents_fts WHERE documents_fts MATCH ? ORDER BY bm25(documents_fts) LIMIT ?`,
 		stemmedQuery, limit*3)
 	if err != nil {
 		return nil, fmt.Errorf("fts query: %w", err)
@@ -91,20 +109,27 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	rank := 1
 	for ftsRows.Next() {
 		var id int64
-		if err := ftsRows.Scan(&id); err != nil {
+		var bm25 float64
+		if err := ftsRows.Scan(&id, &bm25); err != nil {
 			return nil, err
 		}
-		ftsRanks[id] = rank
+		ftsInfos[id] = ftsInfo{rank: rank, bm25: bm25}
+		ftsOrder = append(ftsOrder, id)
 		rank++
 	}
 	if err := ftsRows.Err(); err != nil {
 		return nil, err
 	}
 
-	// 2. Query Vector and build rank map
-	vecRanks := make(map[int64]int)
+	// 2. Query Vector and build rank map with distances
+	type vecInfo struct {
+		rank     int
+		distance float64
+	}
+	vecInfos := make(map[int64]vecInfo)
+	var vecOrder []int64
 	vecRows, err := e.db.QueryContext(ctx,
-		`SELECT rowid FROM documents_vec WHERE embedding MATCH ? ORDER BY distance LIMIT ?`,
+		`SELECT rowid, distance FROM documents_vec WHERE embedding MATCH ? ORDER BY distance LIMIT ?`,
 		qblob, limit*3)
 	if err != nil {
 		return nil, fmt.Errorf("vec query: %w", err)
@@ -113,23 +138,59 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	rank = 1
 	for vecRows.Next() {
 		var id int64
-		if err := vecRows.Scan(&id); err != nil {
+		var dist float64
+		if err := vecRows.Scan(&id, &dist); err != nil {
 			return nil, err
 		}
-		vecRanks[id] = rank
+		vecInfos[id] = vecInfo{rank: rank, distance: dist}
+		vecOrder = append(vecOrder, id)
 		rank++
 	}
 	if err := vecRows.Err(); err != nil {
 		return nil, err
 	}
 
-	// 3. RRF merge
+	// 3. Normalise BM25 and vector similarities independently
+	// Using 1/(1+x) transforms lower-is-better raw scores to [0,1] where 1 = best.
+	ftsNormMap := make(map[int64]float64, len(ftsOrder))
+	for _, id := range ftsOrder {
+		bm25 := ftsInfos[id].bm25
+		if bm25 < 0 {
+			bm25 = 0
+		}
+		ftsNormMap[id] = 1.0 / (1.0 + bm25)
+	}
+	vecNormMap := make(map[int64]float64, len(vecOrder))
+	for _, id := range vecOrder {
+		vecNormMap[id] = 1.0 / (1.0 + vecInfos[id].distance)
+	}
+
+	// 4. RRF merge with score blending
 	allIDs := make(map[int64]struct{})
-	for id := range ftsRanks {
+	for id := range ftsInfos {
 		allIDs[id] = struct{}{}
 	}
-	for id := range vecRanks {
+	for id := range vecInfos {
 		allIDs[id] = struct{}{}
+	}
+
+	// 5. Exact phrase match detection
+	phraseDocIDs := make(map[int64]struct{})
+	if phrase != "" {
+		// FTS5 phrase syntax: wrap query in double quotes
+		ftsPhrase := `"` + phrase + `"`
+		phRows, err := e.db.QueryContext(ctx,
+			`SELECT rowid FROM documents_fts WHERE documents_fts MATCH ? LIMIT ?`,
+			ftsPhrase, limit*3)
+		if err == nil {
+			for phRows.Next() {
+				var id int64
+				if err := phRows.Scan(&id); err == nil {
+					phraseDocIDs[id] = struct{}{}
+				}
+			}
+			phRows.Close()
+		}
 	}
 
 	type scored struct {
@@ -139,21 +200,27 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	scoredDocs := make([]scored, 0, len(allIDs))
 	for id := range allIDs {
 		var s float64
-		if r, ok := ftsRanks[id]; ok {
-			s += 0.7 * (1.0 / (rrfK + float64(r)))
+		if info, ok := ftsInfos[id]; ok {
+			rrf := 1.0 / (rrfK + float64(info.rank))
+			norm := ftsNormMap[id]
+			s += 0.7 * ((1.0-scoreBlendAlpha)*rrf + scoreBlendAlpha*norm)
 		}
-		if r, ok := vecRanks[id]; ok {
-			s += 0.3 * (1.0 / (rrfK + float64(r)))
+		if info, ok := vecInfos[id]; ok {
+			rrf := 1.0 / (rrfK + float64(info.rank))
+			norm := vecNormMap[id]
+			s += 0.3 * ((1.0-scoreBlendAlpha)*rrf + scoreBlendAlpha*norm)
 		}
 		scoredDocs = append(scoredDocs, scored{id: id, score: s})
 	}
 
-	// 4. Fetch metadata and apply title boost using stemmed token overlap
+	// 6. Fetch metadata and apply heuristics
+	now := time.Now()
 	results := make([]Result, 0, len(scoredDocs))
 	for _, s := range scoredDocs {
 		var path, title, docLang string
+		var lastMod sql.NullTime
 		err := e.db.QueryRowContext(ctx,
-			`SELECT path, title, lang FROM documents WHERE id = ?`, s.id).Scan(&path, &title, &docLang)
+			`SELECT path, title, lang, last_modified FROM documents WHERE id = ?`, s.id).Scan(&path, &title, &docLang, &lastMod)
 		if err == sql.ErrNoRows {
 			continue
 		}
@@ -161,9 +228,26 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 			return nil, err
 		}
 		score := s.score
-		if hasTokenOverlap(stemmer.StemText(title, docLang), stemmedTokens) {
-			score *= 1.2
+
+		// Title term-coverage boost
+		stemmedTitle := stemmer.StemText(title, docLang)
+		score *= titleBoost(stemmedTitle, stemmedTokens)
+
+		// Exact phrase in title boost
+		if phrase != "" && strings.Contains(strings.ToLower(title), strings.ToLower(phrase)) {
+			score *= 1.10
 		}
+
+		// Exact phrase in content boost
+		if _, ok := phraseDocIDs[s.id]; ok {
+			score *= 1.10
+		}
+
+		// Recency boost
+		if lastMod.Valid {
+			score *= recencyBoost(lastMod.Time, now)
+		}
+
 		results = append(results, Result{
 			ID:    s.id,
 			Path:  path,
@@ -172,7 +256,7 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 		})
 	}
 
-	// 5. Sort descending with slices.SortFunc
+	// 7. Sort descending with slices.SortFunc
 	slices.SortFunc(results, func(a, b Result) int {
 		if b.Score > a.Score {
 			return 1
@@ -189,20 +273,45 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	return results, nil
 }
 
-func hasTokenOverlap(stemmedText string, stemmedTokens []string) bool {
+func stripOuterQuotes(s string) string {
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		return s[1 : len(s)-1]
+	}
+	if len(s) >= 2 && s[0] == '\'' && s[len(s)-1] == '\'' {
+		return s[1 : len(s)-1]
+	}
+	return s
+}
+
+func titleBoost(stemmedTitle string, stemmedTokens []string) float64 {
 	if len(stemmedTokens) == 0 {
-		return false
+		return 1.0
 	}
 	set := make(map[string]struct{}, len(stemmedTokens))
 	for _, t := range stemmedTokens {
 		set[t] = struct{}{}
 	}
-	for _, t := range strings.Fields(stemmedText) {
+	matched := 0
+	for _, t := range strings.Fields(stemmedTitle) {
 		if _, ok := set[t]; ok {
-			return true
+			matched++
+			delete(set, t) // count each query term at most once
 		}
 	}
-	return false
+	coverage := float64(matched) / float64(len(stemmedTokens))
+	return 1.0 + 0.25*coverage
+}
+
+func recencyBoost(lastModified, now time.Time) float64 {
+	days := now.Sub(lastModified).Hours() / 24.0
+	if days <= 0 {
+		return 1.0 + recencyBoostMax
+	}
+	if days >= maxRecencyDays {
+		return 1.0
+	}
+	factor := 1.0 - (days / maxRecencyDays)
+	return 1.0 + recencyBoostMax*factor
 }
 
 func detectQueryLang(query string) string {
@@ -234,92 +343,9 @@ func detectQueryLang(query string) string {
 	}
 
 	// --- Word-level signals -----------------------------------------------
-	spanishWords := map[string]struct{}{
-		"el": {}, "la": {}, "los": {}, "las": {},
-		"un": {}, "una": {}, "unos": {}, "unas": {},
-		"de": {}, "del": {}, "al": {}, "y": {}, "o": {}, "pero": {},
-		"sin": {}, "con": {}, "por": {}, "para": {}, "en": {}, "a": {},
-		"ante": {}, "bajo": {}, "desde": {}, "entre": {}, "hacia": {},
-		"hasta": {}, "mediante": {}, "según": {}, "sobre": {}, "tras": {},
-		"durante": {}, "excepto": {}, "salvo": {}, "como": {},
-		"lo": {}, "le": {}, "les": {}, "me": {}, "te": {}, "se": {},
-		"nos": {}, "os": {}, "que": {}, "qué": {}, "quien": {}, "quién": {},
-		"cual": {}, "cuál": {}, "cuales": {}, "cuáles": {}, "cuyo": {},
-		"cuya": {}, "cuyos": {}, "cuyas": {},
-		"donde": {}, "dónde": {}, "cuando": {}, "cuándo": {},
-		"cuanto": {}, "cuánto": {}, "cuanta": {}, "cuánta": {},
-		"es": {}, "son": {}, "está": {}, "están": {}, "estoy": {},
-		"estamos": {}, "estáis": {}, "fue": {}, "fueron": {},
-		"ha": {}, "han": {}, "había": {}, "hay": {},
-		"tengo": {}, "tiene": {}, "tienen": {}, "tenemos": {}, "tenéis": {},
-		"hago": {}, "hace": {}, "hacen": {}, "hacemos": {}, "hacéis": {},
-		"más": {}, "muy": {}, "mucho": {}, "mucha": {}, "muchos": {}, "muchas": {},
-		"poco": {}, "poca": {}, "pocos": {}, "pocas": {},
-		"todo": {}, "todos": {}, "toda": {}, "todas": {},
-		"este": {}, "esta": {}, "estos": {}, "estas": {},
-		"ese": {}, "esa": {}, "esos": {}, "esas": {},
-		"aquel": {}, "aquella": {}, "aquellos": {}, "aquellas": {},
-		"mi": {}, "mis": {}, "tu": {}, "tus": {}, "su": {}, "sus": {},
-		"nuestro": {}, "nuestra": {}, "nuestros": {}, "nuestras": {},
-		"vuestro": {}, "vuestra": {}, "vuestros": {}, "vuestras": {},
-		"si": {}, "sino": {}, "también": {}, "ya": {}, "aún": {},
-		"todavía": {}, "siempre": {}, "nunca": {}, "jamás": {},
-		"aquí": {}, "ahí": {}, "allí": {}, "acá": {}, "allá": {},
-		"ahora": {}, "antes": {}, "después": {}, "luego": {},
-		"pronto": {}, "tarde": {}, "temprano": {},
-		"bien": {}, "mal": {}, "mejor": {}, "peor": {},
-		"cómo": {}, "porqué": {}, "porque": {}, "pues": {},
-		"sí": {}, "no": {},
-	}
-
-	basqueWords := map[string]struct{}{
-		"eta": {}, "edo": {}, "baina": {}, "ez": {}, "bai": {}, "ere": {},
-		"bestela": {}, "gainera": {}, "beraz": {}, "ala": {}, "bada": {},
-		"hura": {}, "hau": {}, "berori": {}, "hori": {},
-		"nor": {}, "zer": {}, "nork": {}, "nori": {}, "noren": {},
-		"non": {}, "nola": {}, "noiz": {}, "zergatik": {}, "zenbat": {},
-		"ni": {}, "zu": {}, "gu": {}, "zuek": {}, "haiek": {},
-		"nire": {}, "zure": {}, "haren": {}, "gure": {}, "zuen": {}, "haien": {},
-		"da": {}, "dago": {}, "daude": {}, "du": {}, "ditu": {}, "dute": {},
-		"izan": {}, "egin": {}, "bat": {}, "bi": {}, "guzti": {}, "gutxi": {},
-		"donostia": {}, "kalean": {}, "kale": {}, "kaleak": {},
-		"oso": {}, "inoiz": {}, "beti": {}, "hemen": {}, "han": {}, "hortxe": {},
-		"honela": {}, "euskal": {}, "euskara": {}, "herri": {}, "etxe": {},
-		"etxea": {}, "izena": {}, "urte": {}, "egun": {}, "baietz": {}, "ezetz": {},
-		"alde": {}, "arte": {}, "aurka": {}, "bezala": {}, "gisa": {},
-		"kontra": {}, "ondo": {}, "zai": {}, "aurre": {}, "bitartean": {},
-		"tartean": {}, "barruan": {}, "kanpoan": {}, "gainean": {},
-		"azpian": {}, "aurrean": {}, "atzean": {}, "ondoren": {},
-		"lehen": {}, "gero": {}, "orduan": {}, "orain": {},
-	}
-
-	englishWords := map[string]struct{}{
-		"the": {}, "a": {}, "an": {}, "is": {}, "are": {}, "was": {}, "were": {},
-		"be": {}, "been": {}, "being": {}, "have": {}, "has": {}, "had": {}, "do": {},
-		"does": {}, "did": {}, "will": {}, "would": {}, "shall": {}, "should": {},
-		"can": {}, "could": {}, "may": {}, "might": {}, "must": {}, "ought": {},
-		"i": {}, "you": {}, "he": {}, "she": {}, "it": {}, "we": {}, "they": {},
-		"me": {}, "him": {}, "her": {}, "us": {}, "them": {}, "my": {}, "your": {},
-		"his": {}, "its": {}, "our": {}, "their": {}, "this": {}, "that": {},
-		"these": {}, "those": {}, "of": {}, "in": {}, "to": {}, "for": {}, "with": {},
-		"on": {}, "at": {}, "by": {}, "from": {}, "as": {}, "into": {}, "through": {},
-		"during": {}, "before": {}, "after": {}, "above": {}, "below": {}, "between": {},
-		"and": {}, "but": {}, "or": {}, "yet": {}, "so": {}, "if": {}, "because": {},
-		"although": {}, "though": {}, "while": {}, "where": {}, "when": {},
-		"which": {}, "who": {}, "whom": {}, "whose": {}, "what": {}, "whatever": {},
-		"not": {}, "no": {}, "yes": {}, "there": {}, "then": {}, "than": {},
-		"here": {}, "how": {}, "why": {}, "all": {}, "any": {}, "both": {},
-		"each": {}, "few": {}, "more": {}, "most": {}, "other": {}, "some": {},
-		"such": {}, "only": {}, "own": {}, "same": {}, "too": {}, "very": {},
-		"just": {}, "now": {}, "also": {}, "back": {}, "still": {}, "already": {},
-		"even": {}, "once": {}, "twice": {}, "again": {}, "always": {}, "never": {},
-		"often": {}, "sometimes": {}, "usually": {}, "really": {}, "actually": {},
-		"probably": {}, "maybe": {}, "perhaps": {}, "sure": {}, "well": {},
-		"good": {}, "bad": {}, "new": {}, "old": {}, "first": {}, "last": {},
-		"long": {}, "great": {}, "little": {}, "right": {}, "left": {}, "big": {},
-		"small": {}, "large": {}, "next": {}, "early": {}, "young": {},
-		"important": {}, "different": {}, "following": {}, "public": {}, "able": {},
-	}
+	spanishWords := stemmer.DetectWords["es"]
+	basqueWords := stemmer.DetectWords["eu"]
+	englishWords := stemmer.DetectWords["en"]
 
 	for _, tok := range tokens {
 		if _, ok := spanishWords[tok]; ok {
