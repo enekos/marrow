@@ -22,10 +22,11 @@ const (
 
 // Result represents a single search result.
 type Result struct {
-	ID    int64   `json:"id"`
-	Path  string  `json:"path"`
-	Title string  `json:"title"`
-	Score float64 `json:"score"`
+	ID      int64   `json:"id"`
+	Path    string  `json:"path"`
+	Title   string  `json:"title"`
+	DocType string  `json:"doc_type"`
+	Score   float64 `json:"score"`
 }
 
 // Engine executes hybrid search queries.
@@ -217,10 +218,10 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	now := time.Now()
 	results := make([]Result, 0, len(scoredDocs))
 	for _, s := range scoredDocs {
-		var path, title, docLang string
+		var path, title, docLang, docType string
 		var lastMod sql.NullTime
 		err := e.db.QueryRowContext(ctx,
-			`SELECT path, title, lang, last_modified FROM documents WHERE id = ?`, s.id).Scan(&path, &title, &docLang, &lastMod)
+			`SELECT path, title, lang, doc_type, last_modified FROM documents WHERE id = ?`, s.id).Scan(&path, &title, &docLang, &docType, &lastMod)
 		if err == sql.ErrNoRows {
 			continue
 		}
@@ -249,10 +250,11 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 		}
 
 		results = append(results, Result{
-			ID:    s.id,
-			Path:  path,
-			Title: title,
-			Score: score,
+			ID:      s.id,
+			Path:    path,
+			Title:   title,
+			DocType: docType,
+			Score:   score,
 		})
 	}
 

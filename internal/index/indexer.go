@@ -15,6 +15,7 @@ type Document struct {
 	Title       string
 	Lang        string
 	Source      string
+	DocType     string
 	StemmedText string
 	Embedding   []float32
 }
@@ -45,8 +46,8 @@ func (ix *Indexer) Index(ctx context.Context, doc Document) error {
 
 	if err == sql.ErrNoRows {
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO documents (path, hash, title, lang, source) VALUES (?, ?, ?, ?, ?)`,
-			doc.Path, doc.Hash, doc.Title, doc.Lang, doc.Source)
+			`INSERT INTO documents (path, hash, title, lang, source, doc_type) VALUES (?, ?, ?, ?, ?, ?)`,
+			doc.Path, doc.Hash, doc.Title, doc.Lang, doc.Source, doc.DocType)
 		if err != nil {
 			return fmt.Errorf("insert document: %w", err)
 		}
@@ -56,8 +57,8 @@ func (ix *Indexer) Index(ctx context.Context, doc Document) error {
 		}
 	} else {
 		_, err = tx.ExecContext(ctx,
-			`UPDATE documents SET hash = ?, title = ?, lang = ?, source = ?, last_modified = CURRENT_TIMESTAMP WHERE id = ?`,
-			doc.Hash, doc.Title, doc.Lang, doc.Source, rowid)
+			`UPDATE documents SET hash = ?, title = ?, lang = ?, source = ?, doc_type = ?, last_modified = CURRENT_TIMESTAMP WHERE id = ?`,
+			doc.Hash, doc.Title, doc.Lang, doc.Source, doc.DocType, rowid)
 		if err != nil {
 			return fmt.Errorf("update document: %w", err)
 		}

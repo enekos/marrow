@@ -2,6 +2,8 @@
 
 Marrow is a local-first, hybrid search engine for Markdown repositories. It combines full-text search (FTS5) with vector similarity (sqlite-vec) in a single SQLite database.
 
+It can also index live GitHub issues and pull requests via a GitHub App, making them searchable alongside your documentation.
+
 ## Installation (no Go required)
 
 ### macOS & Linux — one-liner install
@@ -40,6 +42,15 @@ go run -tags sqlite_fts5 . serve \
   -webhook-secret $WEBHOOK_SECRET \
   -source github \
   -local-path ./repo
+
+# Start with GitHub App integration (issues + PRs)
+go run -tags sqlite_fts5 . serve \
+  -db marrow.db \
+  -addr :8080 \
+  -repo-url https://github.com/owner/private-repo \
+  -github-app-id 3384614 \
+  -github-app-private-key /path/to/app-private-key.pem \
+  -github-webhook-secret $GITHUB_WEBHOOK_SECRET
 ```
 
 ## API
@@ -72,6 +83,15 @@ curl -X POST http://localhost:8080/webhook \
 
 Returns `202 Accepted` immediately and performs the sync in the background.
 
+### GitHub App Webhooks
+When `-github-webhook-secret` is set, `/webhook` also accepts real GitHub App webhooks. It automatically handles:
+
+- `issues` (opened, edited, reopened, closed)
+- `pull_request` (opened, edited, reopened, synchronize, closed)
+- `issue_comment` / `pull_request_review_comment` (created, edited)
+
+Configure your GitHub App's webhook URL to point to `https://your-host/webhook`.
+
 ## Build
 
 ```bash
@@ -90,11 +110,23 @@ make test
 - `internal/db` — SQLite schema with `fts5`, `sqlite-vec`, and `sync_state` table
 - `internal/index` — ingestion pipeline with source tracking
 - `internal/search` — hybrid ranking via Reciprocal Rank Fusion (70% FTS + 30% vector) + stemmed title boost
+- `internal/githubapi` — GitHub App authenticated client for issues and PRs
 
 ## Incremental Sync
 
 - **Local directories**: Only files with `mtime` newer than `last_sync_at` are hashed and re-indexed. Deleted files are removed from the DB.
 - **GitHub repos**: `git fetch --depth 1` + `git reset --hard FETCH_HEAD`. Only files changed in the latest commit are re-indexed.
+- **GitHub issues & PRs**: Fetched via the GitHub API on startup and kept in sync via webhooks. Closed items are automatically removed from the search index.
+
+## GitHub App Setup
+
+1. Create a GitHub App and note the **App ID**.
+2. Generate and download a **private key** (PEM file).
+3. Install the app on the target repository or organization.
+4. Run Marrow with `-github-app-id`, `-github-app-private-key`, and optionally `-github-webhook-secret`.
+5. Set the app's webhook URL to your Marrow instance's `/webhook` endpoint.
+
+GitHub items are indexed with synthetic paths like `gh:owner/repo/issues/123` and `gh:owner/repo/pull/456`. The search API returns a `doc_type` field so you can distinguish between markdown files, issues, and pull requests.
 
 ## Notes
 

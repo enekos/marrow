@@ -44,6 +44,7 @@ func (db *DB) migrate() error {
 			title TEXT,
 			lang TEXT,
 			source TEXT DEFAULT 'local',
+			doc_type TEXT DEFAULT 'markdown',
 			last_modified DATETIME DEFAULT CURRENT_TIMESTAMP
 		);`,
 		`CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
@@ -69,8 +70,9 @@ func (db *DB) migrate() error {
 			return err
 		}
 	}
-	// Best-effort migration: add source column if table was created before it existed.
+	// Best-effort migrations: add columns if table was created before they existed.
 	_, _ = db.Exec(`ALTER TABLE documents ADD COLUMN source TEXT DEFAULT 'local'`)
+	_, _ = db.Exec(`ALTER TABLE documents ADD COLUMN doc_type TEXT DEFAULT 'markdown'`)
 	return nil
 }
 
