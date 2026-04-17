@@ -15,6 +15,9 @@ type isVowelFunc func(rune) bool
 // region starts; optionally skips the first `start` characters.
 //
 func VnvSuffix(word *snowballword.SnowballWord, f isVowelFunc, start int) int {
+	if start >= len(word.RS) {
+		return len(word.RS)
+	}
 	for i := 1; i < len(word.RS[start:]); i++ {
 		j := start + i
 		if f(word.RS[j-1]) && !f(word.RS[j]) {

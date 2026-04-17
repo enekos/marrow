@@ -7,6 +7,43 @@ import (
 	"marrow/internal/testutil"
 )
 
+func TestIsStopWord(t *testing.T) {
+	stopWords := []string{"eta", "edo", "baino", "ez", "bai"}
+	for _, w := range stopWords {
+		if !isStopWord(w) {
+			t.Errorf("isStopWord(%q) = false, want true", w)
+		}
+	}
+}
+
+func TestIsStopWordFalse(t *testing.T) {
+	nonStopWords := []string{"etxea", "korrika"}
+	for _, w := range nonStopWords {
+		if isStopWord(w) {
+			t.Errorf("isStopWord(%q) = true, want false", w)
+		}
+	}
+}
+
+func TestStemPreservesStopWords(t *testing.T) {
+	stopWords := []string{"eta", "edo", "baino", "ez", "bai"}
+	for _, w := range stopWords {
+		got := Stem(w, false)
+		if got != w {
+			t.Errorf("Stem(%q, false) = %q, want %q", w, got, w)
+		}
+	}
+}
+
+func TestStemStemsStopWords(t *testing.T) {
+	// "baino" is a stop word that also has a removable suffix,
+	// so it should be stemmed when stemStopWords is true.
+	got := Stem("baino", true)
+	if got == "baino" {
+		t.Errorf("Stem(%q, true) = %q, expected a stemmed form", "baino", got)
+	}
+}
+
 func TestStem(t *testing.T) {
 	inputs := []string{
 		"museoak",

@@ -29,6 +29,13 @@ type Result struct {
 	Score   float64 `json:"score"`
 }
 
+// Filter constrains search results.
+type Filter struct {
+	Source   string
+	DocType  string
+	Lang     string
+}
+
 // Engine executes hybrid search queries.
 type Engine struct {
 	db          *db.DB
@@ -52,7 +59,7 @@ func NewEngine(database *db.DB, embedFn embed.Func) *Engine {
 
 // Search runs a hybrid query and returns ranked results.
 // If langHint is non-empty, it overrides language detection for stemming.
-func (e *Engine) Search(ctx context.Context, query string, langHint string, limit int) ([]Result, error) {
+func (e *Engine) Search(ctx context.Context, query string, langHint string, limit int, filter Filter) ([]Result, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -93,6 +100,9 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 		return nil, fmt.Errorf("serialize query vec: %w", err)
 	}
 
+	// Build metadata filter subquery for joining with FTS/vec results.
+	filterSQL, filterArgs := buildFilterSQL(filter)
+
 	// 1. Query FTS5 and build rank map with BM25 scores
 	type ftsInfo struct {
 		rank int
@@ -100,9 +110,8 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	}
 	ftsInfos := make(map[int64]ftsInfo)
 	var ftsOrder []int64
-	ftsRows, err := e.db.QueryContext(ctx,
-		`SELECT rowid, bm25(documents_fts) FROM documents_fts WHERE documents_fts MATCH ? ORDER BY bm25(documents_fts) LIMIT ?`,
-		stemmedQuery, limit*3)
+	ftsSQL := `SELECT rowid, bm25(documents_fts) FROM documents_fts WHERE documents_fts MATCH ? ORDER BY bm25(documents_fts) LIMIT ?`
+	ftsRows, err := e.db.QueryContext(ctx, ftsSQL, stemmedQuery, limit*3)
 	if err != nil {
 		return nil, fmt.Errorf("fts query: %w", err)
 	}
@@ -129,9 +138,8 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	}
 	vecInfos := make(map[int64]vecInfo)
 	var vecOrder []int64
-	vecRows, err := e.db.QueryContext(ctx,
-		`SELECT rowid, distance FROM documents_vec WHERE embedding MATCH ? ORDER BY distance LIMIT ?`,
-		qblob, limit*3)
+	vecSQL := `SELECT rowid, distance FROM documents_vec WHERE embedding MATCH ? ORDER BY distance LIMIT ?`
+	vecRows, err := e.db.QueryContext(ctx, vecSQL, qblob, limit*3)
 	if err != nil {
 		return nil, fmt.Errorf("vec query: %w", err)
 	}
@@ -152,7 +160,6 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	}
 
 	// 3. Normalise BM25 and vector similarities independently
-	// Using 1/(1+x) transforms lower-is-better raw scores to [0,1] where 1 = best.
 	ftsNormMap := make(map[int64]float64, len(ftsOrder))
 	for _, id := range ftsOrder {
 		bm25 := ftsInfos[id].bm25
@@ -178,7 +185,6 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	// 5. Exact phrase match detection
 	phraseDocIDs := make(map[int64]struct{})
 	if phrase != "" {
-		// FTS5 phrase syntax: wrap query in double quotes
 		ftsPhrase := `"` + phrase + `"`
 		phRows, err := e.db.QueryContext(ctx,
 			`SELECT rowid FROM documents_fts WHERE documents_fts MATCH ? LIMIT ?`,
@@ -214,14 +220,19 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 		scoredDocs = append(scoredDocs, scored{id: id, score: s})
 	}
 
-	// 6. Fetch metadata and apply heuristics
+	// 6. Fetch metadata and apply heuristics + filters
 	now := time.Now()
 	results := make([]Result, 0, len(scoredDocs))
 	for _, s := range scoredDocs {
-		var path, title, docLang, docType string
+		var path, title, docLang, docType, docSource string
 		var lastMod sql.NullTime
-		err := e.db.QueryRowContext(ctx,
-			`SELECT path, title, lang, doc_type, last_modified FROM documents WHERE id = ?`, s.id).Scan(&path, &title, &docLang, &docType, &lastMod)
+		q := `SELECT path, title, lang, doc_type, source, last_modified FROM documents WHERE id = ?`
+		args := []interface{}{s.id}
+		if filterSQL != "" {
+			q = `SELECT path, title, lang, doc_type, source, last_modified FROM documents WHERE id = ? AND ` + filterSQL
+			args = append(args, filterArgs...)
+		}
+		err := e.db.QueryRowContext(ctx, q, args...).Scan(&path, &title, &docLang, &docType, &docSource, &lastMod)
 		if err == sql.ErrNoRows {
 			continue
 		}
@@ -230,21 +241,17 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 		}
 		score := s.score
 
-		// Title term-coverage boost
 		stemmedTitle := stemmer.StemText(title, docLang)
 		score *= titleBoost(stemmedTitle, stemmedTokens)
 
-		// Exact phrase in title boost
 		if phrase != "" && strings.Contains(strings.ToLower(title), strings.ToLower(phrase)) {
 			score *= 1.10
 		}
 
-		// Exact phrase in content boost
 		if _, ok := phraseDocIDs[s.id]; ok {
 			score *= 1.10
 		}
 
-		// Recency boost
 		if lastMod.Valid {
 			score *= recencyBoost(lastMod.Time, now)
 		}
@@ -273,6 +280,27 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 		results = results[:limit]
 	}
 	return results, nil
+}
+
+func buildFilterSQL(f Filter) (string, []interface{}) {
+	var parts []string
+	var args []interface{}
+	if f.Source != "" {
+		parts = append(parts, "source = ?")
+		args = append(args, f.Source)
+	}
+	if f.DocType != "" {
+		parts = append(parts, "doc_type = ?")
+		args = append(args, f.DocType)
+	}
+	if f.Lang != "" {
+		parts = append(parts, "lang = ?")
+		args = append(args, f.Lang)
+	}
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return strings.Join(parts, " AND "), args
 }
 
 func stripOuterQuotes(s string) string {

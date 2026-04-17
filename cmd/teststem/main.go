@@ -11,13 +11,17 @@ import (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	lang := flag.String("lang", "en", "Language code (en, es, eu)")
 	flag.Parse()
 
 	supported := map[string]bool{"en": true, "es": true, "eu": true}
 	if !supported[*lang] {
 		fmt.Fprintf(os.Stderr, "unsupported language: %q (supported: en, es, eu)\n", *lang)
-		os.Exit(1)
+		return 1
 	}
 
 	args := flag.Args()
@@ -25,7 +29,7 @@ func main() {
 		for _, arg := range args {
 			printStemmed(arg, *lang)
 		}
-		return
+		return 0
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -34,8 +38,9 @@ func main() {
 	}
 	if err := scanner.Err(); err != nil {
 		fmt.Fprintf(os.Stderr, "read error: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 func printStemmed(text, lang string) {

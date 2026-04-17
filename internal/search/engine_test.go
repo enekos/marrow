@@ -47,7 +47,7 @@ func TestSearch_HybridRankingAndTitleBoost(t *testing.T) {
 	engine := NewEngine(database, embedFn)
 
 	// Search for "go" — docs /a.md and /c.md have "go" in title.
-	results, err := engine.Search(ctx, "go", "", 10)
+	results, err := engine.Search(ctx, "go", "", 10, Filter{})
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestSearch_EmptyQuery(t *testing.T) {
 	ctx := context.Background()
 	database := setupTestDB(t)
 	engine := NewEngine(database, embed.NewMock())
-	results, err := engine.Search(ctx, "", "", 10)
+	results, err := engine.Search(ctx, "", "", 10, Filter{})
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestSearch_DetectLangOption(t *testing.T) {
 	}
 
 	engineOn := NewEngine(database, embedFn)
-	resultsOn, err := engineOn.Search(ctx, "programación", "", 10)
+	resultsOn, err := engineOn.Search(ctx, "programación", "", 10, Filter{})
 	if err != nil {
 		t.Fatalf("search with detection on: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestSearch_DetectLangOption(t *testing.T) {
 	engineOff := NewEngine(database, embedFn)
 	engineOff.DetectLang = false
 	engineOff.DefaultLang = "en"
-	resultsOff, err := engineOff.Search(ctx, "programación", "", 10)
+	resultsOff, err := engineOff.Search(ctx, "programación", "", 10, Filter{})
 	if err != nil {
 		t.Fatalf("search with detection off: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestSearch_DefaultLang(t *testing.T) {
 	engine := NewEngine(database, embedFn)
 	engine.DetectLang = false
 	engine.DefaultLang = "es"
-	results, err := engine.Search(ctx, "programación", "", 10)
+	results, err := engine.Search(ctx, "programación", "", 10, Filter{})
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestSearch_RankingApproved(t *testing.T) {
 	for _, q := range queries {
 		q := q
 		t.Run(strings.ReplaceAll(q, " ", "_"), func(t *testing.T) {
-			results, err := engine.Search(ctx, q, "", 10)
+			results, err := engine.Search(ctx, q, "", 10, Filter{})
 			if err != nil {
 				t.Fatalf("search %q: %v", q, err)
 			}
@@ -446,7 +446,7 @@ func TestSearch_ScoreComponentsApproved(t *testing.T) {
 	}
 
 	engine := NewEngine(database, embedFn)
-	results, err := engine.Search(ctx, "go modules", "", 10)
+	results, err := engine.Search(ctx, "go modules", "", 10, Filter{})
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -464,4 +464,214 @@ func TestSearch_ScoreComponentsApproved(t *testing.T) {
 		fmt.Fprintf(&sb, "%d. %-20s score=%.6f\n", i+1, r.Title, r.Score)
 	}
 	testutil.VerifyApprovedString(t, sb.String())
+}
+func TestStripOuterQuotes(t *testing.T) {
+	tests := []struct {
+		name string
+		s    string
+		want string
+	}{
+		{"double quotes", `"hello world"`, "hello world"},
+		{"single quotes", `'hello world'`, "hello world"},
+		{"no quotes", `hello world`, "hello world"},
+		{"only one double quote", `"hello world`, `"hello world`},
+		{"only one single quote", `'hello world`, `'hello world`},
+		{"empty string", "", ""},
+		{"two chars double quotes", `""`, ""},
+		{"two chars single quotes", `''`, ""},
+		{"mixed quotes", `"hello world'`, `"hello world'`},
+		{"inner quotes preserved", `"hello 'world'"`, "hello 'world'"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripOuterQuotes(tt.s)
+			if got != tt.want {
+				t.Errorf("stripOuterQuotes(%q) = %q, want %q", tt.s, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildFilterSQL(t *testing.T) {
+	tests := []struct {
+		name     string
+		filter   Filter
+		wantSQL  string
+		wantArgs []interface{}
+	}{
+		{
+			name:     "empty filter",
+			filter:   Filter{},
+			wantSQL:  "",
+			wantArgs: nil,
+		},
+		{
+			name:     "source only",
+			filter:   Filter{Source: "test"},
+			wantSQL:  "source = ?",
+			wantArgs: []interface{}{"test"},
+		},
+		{
+			name:     "doc type only",
+			filter:   Filter{DocType: "issue"},
+			wantSQL:  "doc_type = ?",
+			wantArgs: []interface{}{"issue"},
+		},
+		{
+			name:     "lang only",
+			filter:   Filter{Lang: "en"},
+			wantSQL:  "lang = ?",
+			wantArgs: []interface{}{"en"},
+		},
+		{
+			name:     "source and doc type",
+			filter:   Filter{Source: "test", DocType: "issue"},
+			wantSQL:  "source = ? AND doc_type = ?",
+			wantArgs: []interface{}{"test", "issue"},
+		},
+		{
+			name:     "all three",
+			filter:   Filter{Source: "test", DocType: "issue", Lang: "es"},
+			wantSQL:  "source = ? AND doc_type = ? AND lang = ?",
+			wantArgs: []interface{}{"test", "issue", "es"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotSQL, gotArgs := buildFilterSQL(tt.filter)
+			if gotSQL != tt.wantSQL {
+				t.Errorf("buildFilterSQL() sql = %q, want %q", gotSQL, tt.wantSQL)
+			}
+			if len(gotArgs) != len(tt.wantArgs) {
+				t.Errorf("buildFilterSQL() args len = %d, want %d", len(gotArgs), len(tt.wantArgs))
+			} else {
+				for i := range gotArgs {
+					if gotArgs[i] != tt.wantArgs[i] {
+						t.Errorf("buildFilterSQL() args[%d] = %v, want %v", i, gotArgs[i], tt.wantArgs[i])
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestTitleBoost(t *testing.T) {
+	tests := []struct {
+		name          string
+		stemmedTitle  string
+		stemmedTokens []string
+		want          float64
+	}{
+		{
+			name:          "empty tokens",
+			stemmedTitle:  "go program languag",
+			stemmedTokens: []string{},
+			want:          1.0,
+		},
+		{
+			name:          "no match",
+			stemmedTitle:  "rust program languag",
+			stemmedTokens: []string{"go", "modul"},
+			want:          1.0,
+		},
+		{
+			name:          "full match",
+			stemmedTitle:  "go modul tutori",
+			stemmedTokens: []string{"go", "modul", "tutori"},
+			want:          1.25,
+		},
+		{
+			name:          "partial match",
+			stemmedTitle:  "go modul guid",
+			stemmedTokens: []string{"go", "modul", "tutori"},
+			want:          1.0 + 0.25*(2.0/3.0),
+		},
+		{
+			name:          "duplicate tokens in title counted once",
+			stemmedTitle:  "go go go",
+			stemmedTokens: []string{"go", "modul"},
+			want:          1.0 + 0.25*(1.0/2.0),
+		},
+		{
+			name:          "duplicate tokens in query counted once",
+			stemmedTitle:  "go modul tutori",
+			stemmedTokens: []string{"go", "go", "go"},
+			want:          1.0 + 0.25*(1.0/3.0),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := titleBoost(tt.stemmedTitle, tt.stemmedTokens)
+			if got != tt.want {
+				t.Errorf("titleBoost(%q, %v) = %f, want %f", tt.stemmedTitle, tt.stemmedTokens, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRecencyBoost(t *testing.T) {
+	now := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name         string
+		lastModified time.Time
+		now          time.Time
+		want         float64
+	}{
+		{
+			name:         "future time gets max boost",
+			lastModified: now.Add(24 * time.Hour),
+			now:          now,
+			want:         1.0 + recencyBoostMax,
+		},
+		{
+			name:         "same time gets max boost",
+			lastModified: now,
+			now:          now,
+			want:         1.0 + recencyBoostMax,
+		},
+		{
+			name:         "very old gets no boost",
+			lastModified: now.Add(-365 * 24 * time.Hour),
+			now:          now,
+			want:         1.0,
+		},
+		{
+			name:         "exactly at boundary gets no boost",
+			lastModified: now.Add(-maxRecencyDays * 24 * time.Hour),
+			now:          now,
+			want:         1.0,
+		},
+		{
+			name:         "halfway gets half boost",
+			lastModified: now.Add(-90 * 24 * time.Hour),
+			now:          now,
+			want:         1.0 + recencyBoostMax*0.5,
+		},
+		{
+			name:         "quarterway gets three quarter boost",
+			lastModified: now.Add(-45 * 24 * time.Hour),
+			now:          now,
+			want:         1.0 + recencyBoostMax*(1.0-45.0/maxRecencyDays),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := recencyBoost(tt.lastModified, tt.now)
+			if got != tt.want {
+				t.Errorf("recencyBoost(%v, %v) = %f, want %f", tt.lastModified, tt.now, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewEngine_DefaultMockEmbed(t *testing.T) {
+	engine := NewEngine(nil, nil)
+	if engine.embedFn == nil {
+		t.Error("expected non-nil embedFn when nil is passed to NewEngine")
+	}
 }

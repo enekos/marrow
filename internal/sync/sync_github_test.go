@@ -202,3 +202,35 @@ func TestDeleteGitHubDocument(t *testing.T) {
 		t.Errorf("expected 0 paths, got %d", len(paths))
 	}
 }
+
+func TestIndexSinglePullRequest(t *testing.T) {
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	orch := &Orchestrator{
+		DB:          database,
+		EmbedFn:     embed.NewMock(),
+		Source:      "github-api",
+		DefaultLang: "en",
+	}
+
+	client := &fakeGitHubClient{
+		prs: []githubapi.PullRequestDocument{
+			{Number: 7, Title: "Feature", Body: "Adds feature"},
+		},
+	}
+
+	ctx := context.Background()
+	if err := orch.IndexSinglePullRequest(ctx, client, "owner", "repo", 7); err != nil {
+		t.Fatalf("index single pr: %v", err)
+	}
+
+	var title string
+	err = database.QueryRowContext(ctx, `SELECT title FROM documents WHERE path = ?`, "gh:owner/repo/pull/7").Scan(&title)
+	if err != nil || title != "Feature" {
+		t.Errorf("expected title Feature, got %q (err=%v)", title, err)
+	}
+}

@@ -11,11 +11,30 @@ import (
 
 // Config is the top-level resolved configuration for Marrow.
 type Config struct {
-	Server    ServerConfig    `mapstructure:"server"`
-	GitHub    GitHubConfig    `mapstructure:"github"`
-	Search    SearchConfig    `mapstructure:"search"`
-	Sync      SyncConfig      `mapstructure:"sync"`
-	GitHubApp GitHubAppConfig `mapstructure:"github_app"`
+	Server      ServerConfig    `mapstructure:"server"`
+	GitHub      GitHubConfig    `mapstructure:"github"`
+	Search      SearchConfig    `mapstructure:"search"`
+	Sync        SyncConfig      `mapstructure:"sync"`
+	GitHubApp   GitHubAppConfig `mapstructure:"github_app"`
+	Embedding   EmbeddingConfig `mapstructure:"embedding"`
+	Sources     []SourceConfig  `mapstructure:"sources"`
+}
+
+type EmbeddingConfig struct {
+	Provider string `mapstructure:"provider"`
+	Model    string `mapstructure:"model"`
+	BaseURL  string `mapstructure:"base_url"`
+	APIKey   string `mapstructure:"api_key"`
+}
+
+type SourceConfig struct {
+	Name        string `mapstructure:"name"`
+	Type        string `mapstructure:"type"` // local, git, github_api
+	Dir         string `mapstructure:"dir"`
+	RepoURL     string `mapstructure:"repo_url"`
+	Token       string `mapstructure:"token"`
+	LocalPath   string `mapstructure:"local_path"`
+	DefaultLang string `mapstructure:"default_lang"`
 }
 
 type ServerConfig struct {
@@ -135,4 +154,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("github_app.repo_owner", "")
 	v.SetDefault("github_app.repo_name", "")
 	v.SetDefault("github_app.webhook_secret", "")
+
+	// Embedding
+	v.SetDefault("embedding.provider", "mock")
+	v.SetDefault("embedding.model", "")
+	v.SetDefault("embedding.base_url", "")
+	v.SetDefault("embedding.api_key", "")
 }
