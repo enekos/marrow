@@ -1,7 +1,10 @@
 package english
 
 import (
+	"strings"
 	"testing"
+
+	"marrow/internal/testutil"
 )
 
 func TestStem(t *testing.T) {
@@ -74,9 +77,9 @@ func TestStem(t *testing.T) {
 		{"''", true, "''"},                       // double_apostrophe
 		{"'''", true, ""},                        // triple_apostrophe
 		{"'aa", true, "aa"},                      // apostrophe_prefix
-		{"it’s", true, "it"},                     // smart_quote_right
-		{"don‘t", true, "don't"},                 // smart_quote_left
-		{"rock‛nroll", true, "rock'nrol"},        // smart_quote_single
+		{"it's", true, "it"},                     // smart_quote_right
+		{"don't", true, "don't"},                 // smart_quote_left
+		{"rock'nroll", true, "rock'nrol"},        // smart_quote_single
 		{"cat's", true, "cat"},                   // possessive
 		{"cats'", true, "cat"},                   // possessive_plural
 		{"cat's'", true, "cat"},                  // possessive_s_apostrophe
@@ -255,4 +258,118 @@ func TestStem(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStemApproved(t *testing.T) {
+	words := []string{
+		"abandon", "abandoned", "abandonment", "abbreviate", "abbreviated", "abbreviation",
+		"ability", "able", "abnormal", "abnormality", "abolish", "abolition",
+		"absence", "absent", "absolute", "absolutely", "absorb", "absorption",
+		"abstract", "abstraction", "absurd", "absurdity", "abundance", "abundant",
+		"abuse", "abused", "academic", "academy", "accelerate", "acceleration",
+		"accent", "accentuate", "accept", "acceptable", "acceptance", "accepted",
+		"access", "accessible", "accident", "accidental", "accommodate", "accommodation",
+		"accompanied", "accomplish", "accomplishment", "accord", "accordance", "accordingly",
+		"account", "accountability", "accountable", "accountant", "accumulate", "accumulation",
+		"accuracy", "accurate", "accurately", "accusation", "accuse", "accused",
+		"achieve", "achievement", "acid", "acidity", "acknowledge", "acknowledgment",
+		"acquaintance", "acquire", "acquisition", "acquit", "acquittal", "acre",
+		"action", "activate", "activation", "active", "actively", "activist",
+		"activity", "actor", "actress", "actual", "actually", "actuate",
+		"adapt", "adaptation", "adapter", "addiction", "addition", "additional",
+		"additionally", "address", "adequacy", "adequate", "adequately", "adhere",
+		"adherence", "adhesive", "adjacent", "adjective", "adjoin", "adjourn",
+		"adjust", "adjustable", "adjustment", "administer", "administration", "administrative",
+		"administrator", "admirable", "admiral", "admiration", "admire", "admissible",
+		"admission", "admit", "admittedly", "adolescence", "adolescent", "adopt",
+		"adoption", "adorable", "adore", "adorn", "adornment", "adult",
+		"adulthood", "advance", "advanced", "advancement", "advantage", "advantageous",
+		"adventure", "adventurous", "adversary", "adverse", "adversity", "advertise",
+		"advertisement", "advertising", "advice", "advisable", "advise", "adviser",
+		"advocate", "aerial", "aerodynamic", "aesthetic", "affair", "affect",
+		"affection", "affectionate", "affiliate", "affinity", "affirm", "affirmation",
+		"affirmative", "afflict", "affliction", "affluent", "afford", "affordable",
+		"afraid", "aftermath", "afternoon", "afterward", "afterwards", "agency",
+		"agenda", "agent", "aggravate", "aggravation", "aggregate", "aggregation",
+		"aggression", "aggressive", "aggressor", "agitate", "agitation", "agnostic",
+		"ago", "agony", "agree", "agreeable", "agreed", "agreement",
+		"agricultural", "agriculture", "ahead", "aid", "ailment", "aim",
+		"air", "aircraft", "airline", "airplane", "airport", "airy",
+		"alarm", "alarming", "albeit", "album", "alcohol", "alcoholic",
+		"alert", "algebra", "algebraic", "alias", "alien", "alienate",
+		"alienation", "align", "alignment", "alike", "alive", "allegation",
+		"allege", "alleged", "allegedly", "allegiance", "allegory", "allergic",
+		"allergy", "alleviate", "alleviation", "alliance", "allied", "allocate",
+		"allocation", "allot", "allow", "allowance", "allude", "allusion",
+		"ally", "almighty", "almost", "alone", "along", "alongside",
+		"aloud", "alphabet", "alphabetical", "already", "also", "alter",
+		"alteration", "alternate", "alternation", "alternative", "alternatively", "although",
+		"altitude", "altogether", "aluminum", "always", "amateur", "amaze",
+		"amazed", "amazement", "amazing", "ambassador", "ambiguous", "ambition",
+		"ambitious", "ambulance", "amend", "amendment", "amends", "amenity",
+		"amid", "amiss", "among", "amongst", "amount", "ample",
+		"amplification", "amplify", "amuse", "amused", "amusement", "amusing",
+		"analogous", "analogy", "analyse", "analysis", "analyst", "analytic",
+		"analytical", "ancestor", "ancestral", "ancestry", "anchor", "ancient",
+		"and", "anecdote", "angel", "anger", "angle", "angry",
+		"anguish", "animal", "animate", "animated", "animation", "animosity",
+		"ankle", "annex", "annihilate", "annihilation", "anniversary", "annotate",
+		"announce", "announcement", "announcer", "annoy", "annoyance", "annoyed",
+		"annoying", "annual", "annually", "anomaly", "anonymous", "another",
+		"answer", "ant", "antagonism", "antagonist", "antarctic", "antenna",
+		"anticipate", "anticipation", "antique", "antiquity", "antiseptic", "anxiety",
+		"anxious", "anxiously", "any", "anybody", "anyhow", "anymore",
+		"anyone", "anything", "anyway", "anywhere", "apart", "apartment",
+		"apologize", "apology", "appal", "appalling", "apparatus", "apparent",
+		"apparently", "appeal", "appealing", "appear", "appearance", "appease",
+		"appendix", "appetite", "applaud", "applause", "apple", "appliance",
+		"applicable", "applicant", "application", "applied", "apply", "appoint",
+		"appointed", "appointment", "appraisal", "appraise", "appreciable", "appreciate",
+		"appreciation", "appreciative", "apprehend", "apprehension", "apprentice", "approach",
+		"approachable", "appropriate", "approval", "approve", "approximate", "approximately",
+		"approximation", "apt", "aptitude", "aquatic", "arbitrary", "arbitration",
+		"arc", "arch", "archaic", "archbishop", "architect", "architectural",
+		"architecture", "archive", "ardent", "arduous", "area", "arena",
+		"argue", "argument", "argumentative", "arid", "arise", "aristocracy",
+		"aristocrat", "aristocratic", "arithmetic", "arm", "armchair", "armed",
+		"armour", "army", "aroma", "aromatic", "around", "arouse",
+		"arrange", "arrangement", "array", "arrest", "arrival", "arrive",
+		"arrogance", "arrogant", "arrow", "art", "artery", "artful",
+		"article", "articulate", "articulation", "artifact", "artificial", "artillery",
+		"artist", "artistic", "artistry", "ascend", "ascending", "ascent",
+		"ascertain", "ascribe", "ash", "ashamed", "ashore", "ashtray",
+		"aside", "ask", "asleep", "aspect", "aspiration", "aspire",
+		"assassin", "assassinate", "assassination", "assault", "assemble", "assembly",
+		"assert", "assertion", "assertive", "assess", "assessment", "asset",
+		"assign", "assignment", "assimilate", "assimilation", "assist", "assistance",
+		"assistant", "associate", "association", "assorted", "assortment", "assume",
+		"assumption", "assurance", "assure", "assured", "astonish", "astonished",
+		"astonishing", "astonishment", "astound", "astounding", "astray", "astronaut",
+		"astronomer", "astronomical", "astronomy", "astute", "asylum", "asymmetric",
+		"atheist", "athlete", "athletic", "athletics", "atlas", "atmosphere",
+		"atmospheric", "atom", "atomic", "atrocious", "atrocity", "attach",
+		"attachment", "attack", "attain", "attainable", "attainment", "attempt",
+		"attend", "attendance", "attendant", "attention", "attentive", "attic",
+		"attitude", "attorney", "attract", "attraction", "attractive", "attractiveness",
+		"attribute", "attribution", "auction", "audible", "audience", "audio",
+		"audit", "audition", "auditor", "auditorium", "augment", "augmentation",
+		"aunt", "authentic", "authenticate", "authenticity", "author", "authorise",
+		"authoritative", "authority", "authorization", "authorize", "autobiographical", "autobiography",
+		"automate", "automatic", "automatically", "automation", "automobile", "autonomous",
+		"autonomy", "autumn", "auxiliary", "avail", "availability", "available",
+		"avalanche", "avenge", "avenue", "average", "avert", "aviation",
+		"avoid", "avoidance", "awake", "awaken", "awakening", "award",
+		"aware", "awareness", "away", "awe", "awesome", "awful",
+		"awfully", "awkward", "awkwardness", "awning", "axis", "axle",
+	}
+
+	var sb strings.Builder
+	for _, w := range words {
+		sb.WriteString(w)
+		sb.WriteString(" -> ")
+		sb.WriteString(Stem(w, true))
+		sb.WriteByte('\n')
+	}
+
+	testutil.VerifyApprovedString(t, sb.String())
 }

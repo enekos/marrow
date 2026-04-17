@@ -5,3 +5,14 @@ unknown language lowercases: hello world
 empty text: 
 punctuation stripped: run quick
 all stopwords become empty: 
+english longer sentence: beauti organ run nation garden
+english mixed punctuation and numbers: hello world 123 test run fast
+spanish longer sentence: estudi estab estudi univers
+spanish with accents: music español fantast
+basque longer sentence: ikasle eskol joan ziren liburu irakurri zitu
+basque with punctuation: katu etxean etxea
+english possessives: cat s tail dog bone
+spanish question words: dond quien vien
+english uppercase with stopwords: quick brown fox jump over lazi dog
+spanish all stopwords: 
+basque all stopwords: 

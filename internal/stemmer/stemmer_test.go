@@ -24,6 +24,34 @@ func TestFilterStopWords(t *testing.T) {
 	}
 }
 
+func TestSupportedLanguages(t *testing.T) {
+	langs := SupportedLanguages()
+	if len(langs) != 3 {
+		t.Errorf("SupportedLanguages() len = %d; want 3", len(langs))
+	}
+	m := make(map[string]struct{}, len(langs))
+	for _, l := range langs {
+		m[l] = struct{}{}
+	}
+	for _, want := range []string{"en", "es", "eu"} {
+		if _, ok := m[want]; !ok {
+			t.Errorf("SupportedLanguages() missing %q", want)
+		}
+	}
+}
+
+type mockStemmer struct{}
+
+func (mockStemmer) Stem(word string, _ bool) string { return word }
+
+func TestRegisterStemmer(t *testing.T) {
+	RegisterStemmer("xx", mockStemmer{})
+	got := StemText("hello", "xx")
+	if got != "hello" {
+		t.Errorf("StemText with custom stemmer = %q; want %q", got, "hello")
+	}
+}
+
 func TestStemText(t *testing.T) {
 	cases := []struct {
 		name string
@@ -64,6 +92,61 @@ func TestStemText(t *testing.T) {
 			name: "all stopwords become empty",
 			text: "the a an is",
 			lang: "en",
+		},
+		{
+			name: "english longer sentence",
+			text: "The beautiful organizations were running through the national gardens",
+			lang: "en",
+		},
+		{
+			name: "english mixed punctuation and numbers",
+			text: "Hello... world!!! 123 test-running (fast)",
+			lang: "en",
+		},
+		{
+			name: "spanish longer sentence",
+			text: "Los estudiantes estaban estudiando en la universidad",
+			lang: "es",
+		},
+		{
+			name: "spanish with accents",
+			text: "La música española es fantástica",
+			lang: "es",
+		},
+		{
+			name: "basque longer sentence",
+			text: "Ikasleak eskolara joan ziren eta liburuak irakurri zituzten",
+			lang: "eu",
+		},
+		{
+			name: "basque with punctuation",
+			text: "Katuek, etxean, daude! Zure etxea da?",
+			lang: "eu",
+		},
+		{
+			name: "english possessives",
+			text: "The cat's tail and the dogs' bones",
+			lang: "en",
+		},
+		{
+			name: "spanish question words",
+			text: "¿Dónde están? ¿Quién viene?",
+			lang: "es",
+		},
+		{
+			name: "english uppercase with stopwords",
+			text: "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG",
+			lang: "en",
+		},
+		{
+			name: "spanish all stopwords",
+			text: "el la los las de y en",
+			lang: "es",
+		},
+		{
+			name: "basque all stopwords",
+			text: "eta ez bai da dago",
+			lang: "eu",
 		},
 	}
 

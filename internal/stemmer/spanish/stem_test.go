@@ -1,6 +1,11 @@
 package spanish
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"marrow/internal/testutil"
+)
 
 func TestStem(t *testing.T) {
 	t.Run("short and empty words", func(t *testing.T) {
@@ -1000,4 +1005,120 @@ func TestStem(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestStemApproved(t *testing.T) {
+	words := []string{
+		"abandonar", "abandonado", "abandono", "abastecer", "abastecimiento", "abdomen",
+		"abdominal", "abeja", "abertura", "abierto", "abogado", "abogada",
+		"abogacía", "abolir", "abominable", "abordar", "abortar", "aborto",
+		"abrazar", "abrazo", "abreviar", "abreviatura", "abrigar", "abrigo",
+		"abril", "abrir", "absoluto", "absoluta", "absorber", "abstenerse",
+		"abstracto", "abstracta", "abuela", "abuelo", "abundancia", "abundante",
+		"abusar", "abuso", "acabar", "academia", "académico", "académica",
+		"acceder", "accesible", "acceso", "accidente", "accidental", "acción",
+		"acechar", "aceite", "acelerar", "aceleración", "acento", "aceptable",
+		"aceptar", "aceptación", "acera", "acerca", "acercar", "acertar",
+		"acervo", "achicar", "ácido", "aclarar", "acogedor", "acogedora",
+		"acoger", "acomodar", "acompañar", "acompañante", "acondicionar", "acontecer",
+		"acontecimiento", "acordar", "acorde", "acortar", "acostar", "acostumbrar",
+		"actitud", "activar", "activo", "activa", "actividad", "actor",
+		"actriz", "actuar", "acudir", "acuerdo", "acumular", "acumulación",
+		"acusar", "acusación", "adaptar", "adaptación", "adecuado", "adecuada",
+		"adelantar", "adelante", "adelanto", "adelfa", "además", "adentrarse",
+		"aderezo", "adhesivo", "adiós", "adivinar", "adivinanza", "adjetivo",
+		"adjunto", "adjunta", "administrar", "administración", "administrador", "administradora",
+		"admirable", "admirar", "admisión", "admitir", "adobe", "adoptar",
+		"adopción", "adorar", "adornar", "adorno", "adquirir", "adquisición",
+		"adrede", "adular", "adulterio", "adulto", "adulta", "advenir",
+		"adverbio", "adversario", "adversa", "adverso", "advertencia", "advertir",
+		"aeropuerto", "afán", "afectar", "afeitar", "afición", "aficionado",
+		"aficionada", "afilar", "afirmar", "afirmación", "afligir", "aflojar",
+		"afluencia", "afortunado", "afortunada", "afrenta", "afta", "afuera",
+		"agachar", "agarrar", "agarre", "agencia", "agenda", "agente",
+		"agilizar", "ágil", "agitación", "agitar", "agonía", "agosto",
+		"agotar", "agradable", "agradar", "agradecer", "agradecimiento", "agrario",
+		"agraria", "agravar", "agredir", "agregar", "agresión", "agresivo",
+		"agresiva", "agresor", "agriar", "agricultor", "agricultora", "agricultura",
+		"agrietar", "agrupar", "agua", "aguacero", "aguardar", "agudeza",
+		"agudo", "aguda", "aguja", "ahijado", "ahijada", "ahogar",
+		"ahora", "ahorrar", "ahorro", "aire", "aislar", "aislamiento",
+		"ajedrez", "ajeno", "ajena", "ajo", "ajustar", "ajuste",
+		"alabar", "alabanza", "alacrán", "alambre", "alarma", "alarmante",
+		"albañil", "albergue", "álbum", "alcalde", "alcaldesa", "alcance",
+		"alcanzar", "alcoba", "alcohol", "alegrar", "alegre", "alegría",
+		"alejar", "aleman", "alemana", "alergia", "alerta", "alfabetización",
+		"alfabeto", "alfiler", "alga", "álgebra", "algo", "algodón",
+		"alguien", "alguno", "alguna", "alianza", "aliar", "alimento",
+		"alimentar", "alimentación", "alistar", "aliviar", "alivio", "allá",
+		"allí", "alma", "almohada", "alquilar", "alquiler", "alrededor",
+		"altar", "alterar", "alternativa", "altitud", "alto", "alta",
+		"alucinar", "alumno", "alumna", "alzar", "amable", "amabilidad",
+		"amante", "amar", "amarillo", "amarilla", "ambición", "ambicioso",
+		"ambiciosa", "ambiente", "ambiguo", "ambigua", "ambos", "ambas",
+		"ambulancia", "ameba", "amenazar", "amenaza", "ameno", "amena",
+		"amistad", "amistoso", "amistosa", "amnesia", "amo", "ama",
+		"amor", "ampliar", "amplio", "amplia", "amplitud", "ampolla",
+		"amputar", "analizar", "análisis", "analista", "análogo", "análoga",
+		"anarquía", "anatomía", "ancestro", "ancla", "anciano", "anciana",
+		"andanada", "andar", "anecdótico", "anecdótica", "anemia", "anfibio",
+		"angelical", "ángulo", "angustia", "angustiar", "anhelo", "anhelar",
+		"anillo", "animación", "animal", "animar", "ánimo", "aniversario",
+		"anoche", "anochecer", "anomalía", "anónimo", "anónima", "ansiedad",
+		"ansioso", "ansiosa", "antena", "anterior", "antes", "antibiótico",
+		"antibiótica", "antídoto", "antiguo", "antigua", "antipatía", "antorcha",
+		"antropología", "anual", "anular", "anunciar", "anuncio", "año",
+		"apagar", "aparato", "aparecer", "apariencia", "apartamento", "apartar",
+		"aparte", "apático", "apática", "apelar", "apellido", "apenas",
+		"apertura", "apesadumbrar", "ápice", "apilar", "apisonadora", "aplacar",
+		"aplaudir", "aplauso", "aplicable", "aplicar", "aplicación", "apodo",
+		"apogeo", "apología", "aposento", "apostar", "apoyo", "apoyar",
+		"apreciar", "aprecio", "aprendiz", "aprendizaje", "apresurar", "apretar",
+		"aprobación", "aprobar", "apropiado", "apropiada", "aprovechar", "aproximar",
+		"apuesta", "apuntar", "apunte", "apuro", "aquel", "aquella",
+		"aquello", "arabesco", "araña", "arar", "árbitro", "árbitra",
+		"árbol", "arbusto", "archivar", "archivo", "arder", "ardiente",
+		"ardilla", "arduo", "ardua", "arena", "arenque", "argüir",
+		"argumentar", "argumento", "arma", "armar", "armario", "armonía",
+		"aroma", "aromatizar", "arpa", "arquitecto", "arquitecta", "arquitectura",
+		"arraigar", "arrancar", "arrebatar", "arreglar", "arreglo", "arrestar",
+		"arresto", "arriba", "arriesgar", "arrogante", "arroz", "arruga",
+		"arte", "arteria", "artesanía", "artesano", "artesana", "articular",
+		"artículo", "artificial", "artillería", "artista", "artístico", "artística",
+		"asa", "ascender", "ascenso", "asceta", "asear", "asediar",
+		"asedio", "asegurar", "aseo", "aserrín", "asesinar", "asesinato",
+		"asesor", "asesora", "asesorar", "asfixia", "asfixiar", "asiento",
+		"asignar", "asignatura", "asilo", "asimilar", "asimismo", "asir",
+		"asistencia", "asistente", "asistir", "asma", "asno", "asociación",
+		"asociar", "asomar", "asombro", "asombroso", "asombrosa", "aspecto",
+		"aspereza", "aspersión", "aspirar", "aspiración", "aspirina", "astilla",
+		"astrónomo", "astrónoma", "astucia", "astuto", "astuta", "asumir",
+		"asunto", "asustar", "asustadizo", "asustadiza", "atacar", "ataque",
+		"atar", "atardecer", "ataúd", "atemorizar", "atención", "atender",
+		"atenerse", "aterrizaje", "aterrizar", "aterrorizar", "atesorar", "atestiguar",
+		"ático", "atletismo", "atmósfera", "atómico", "atómica", "atónito",
+		"atónita", "atracar", "atracción", "atraer", "atrapar", "atraerse",
+		"atrasar", "atraso", "atravesar", "atrever", "atrevido", "atrevida",
+		"atribuir", "atributo", "atroz", "aturdir", "audaz", "audiencia",
+		"audio", "auditorio", "aumentar", "aumento", "aun", "aún",
+		"aunar", "aupar", "ausencia", "ausente", "auspiciar", "austero",
+		"austera", "australia", "auténtico", "auténtica", "autobús", "autocracia",
+		"autografiar", "automático", "automática", "autonomía", "autonomo", "autonoma",
+		"autor", "autora", "autoridad", "autorizar", "autorización", "autovia",
+		"avanzar", "avance", "avaricia", "avaro", "avara", "ave",
+		"avena", "avenida", "aventura", "aventurero", "aventurera", "avergonzar",
+		"avería", "averiguar", "avisar", "aviso", "avispa", "axila",
+		"ayer", "ayuda", "ayudante", "ayunar", "ayuno", "azafata",
+		"azar", "azote", "azotea", "azúcar", "azul", "baba",
+	}
+
+	var sb strings.Builder
+	for _, w := range words {
+		sb.WriteString(w)
+		sb.WriteString(" -> ")
+		sb.WriteString(Stem(w, true))
+		sb.WriteByte('\n')
+	}
+
+	testutil.VerifyApprovedString(t, sb.String())
 }

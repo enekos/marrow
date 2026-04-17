@@ -5,11 +5,16 @@ import (
 	"strings"
 )
 
-// Stem an English word.  This is the only exported
-// function in this package.
-//
-func Stem(word string, stemStopWords bool) string {
+// Stemmer implements the language-agnostic stemmer interface for English.
+type Stemmer struct{}
 
+// Stem stems a single English word.
+func (Stemmer) Stem(word string, stemStopWords bool) string {
+	return Stem(word, stemStopWords)
+}
+
+// Stem an English word.
+func Stem(word string, stemStopWords bool) string {
 	word = strings.ToLower(strings.TrimSpace(word))
 
 	// Return small words and stop words
@@ -27,7 +32,6 @@ func Stem(word string, stemStopWords bool) string {
 
 	// Stem the word.  Note, each of these
 	// steps will alter `w` in place.
-	//
 	preprocess(w)
 	step0(w)
 	step1a(w)
@@ -40,5 +44,4 @@ func Stem(word string, stemStopWords bool) string {
 	postprocess(w)
 
 	return w.String()
-
 }

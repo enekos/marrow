@@ -5,11 +5,16 @@ import (
 	"strings"
 )
 
-// Stem a Spanish word.  This is the only exported
-// function in this package.
-//
-func Stem(word string, stemStopWords bool) string {
+// Stemmer implements the language-agnostic stemmer interface for Spanish.
+type Stemmer struct{}
 
+// Stem stems a single Spanish word.
+func (Stemmer) Stem(word string, stemStopWords bool) string {
+	return Stem(word, stemStopWords)
+}
+
+// Stem a Spanish word.
+func Stem(word string, stemStopWords bool) string {
 	word = strings.ToLower(strings.TrimSpace(word))
 
 	// Return small words and stop words
@@ -21,8 +26,6 @@ func Stem(word string, stemStopWords bool) string {
 
 	// Stem the word.  Note, each of these
 	// steps will alter `w` in place.
-	//
-
 	preprocess(w)
 	step0(w)
 	changeInStep1 := step1(w)
@@ -36,5 +39,4 @@ func Stem(word string, stemStopWords bool) string {
 	postprocess(w)
 
 	return w.String()
-
 }
