@@ -515,9 +515,11 @@ func TestRecencyBoost(t *testing.T) {
 	}
 }
 
-func TestNewEngine_DefaultMockEmbed(t *testing.T) {
-	engine := NewEngine(nil, nil)
-	if engine.embedFn == nil {
-		t.Error("expected non-nil embedFn when nil is passed to NewEngine")
-	}
+func TestNewEngine_PanicsOnNilEmbedFn(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic when embedFn is nil")
+		}
+	}()
+	_ = NewEngine(nil, nil)
 }

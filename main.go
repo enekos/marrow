@@ -356,6 +356,15 @@ func openDBAndEmbed(logger *slog.Logger, dbPath string, cfg *config.Config) (*db
 		logger.Error("create embed provider", "err", err)
 		os.Exit(1)
 	}
+	if strings.EqualFold(cfg.Embedding.Provider, "mock") {
+		logger.Warn("using mock embedding provider — vector search results are pseudo-random; configure embedding.provider for real semantic search")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := embed.Validate(ctx, embedFn); err != nil {
+		logger.Error("embedding validation failed", "provider", cfg.Embedding.Provider, "err", err)
+		os.Exit(1)
+	}
 	return database, embedFn
 }
 

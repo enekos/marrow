@@ -50,10 +50,11 @@ type Engine struct {
 	DefaultLang string
 }
 
-// NewEngine creates a search engine.
+// NewEngine creates a search engine. embedFn must not be nil; callers should
+// obtain one from embed.NewProvider (or embed.NewMock for tests).
 func NewEngine(database DBConn, embedFn embed.Func) *Engine {
 	if embedFn == nil {
-		embedFn = embed.NewMock()
+		panic("search.NewEngine: embedFn must not be nil")
 	}
 	return &Engine{
 		db:          database,

@@ -132,4 +132,4 @@ GitHub items are indexed with synthetic paths like `gh:owner/repo/issues/123` an
 
 - Build requires `-tags sqlite_fts5` because FTS5 is gated behind a build tag in `mattn/go-sqlite3`.
 - Stemming is implemented in pure Go: English (Porter2), Spanish (Snowball), and Basque (Snowball). No external NLP services required.
-- Embeddings are deterministic mocks derived from SHA-256 hashes, making the project zero-config and fully testable without external services.
+- An embedding provider must be configured explicitly via `embedding.provider` (`mock`, `ollama`, or `openai`). Dimensions are validated at startup against the 384-dim schema. The mock provider is for tests/CI — it returns pseudo-random but deterministic vectors derived from SHA-256 and gives a loud warning when used.

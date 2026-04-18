@@ -21,12 +21,12 @@ func TestNewProvider_Mock(t *testing.T) {
 }
 
 func TestNewProvider_Empty(t *testing.T) {
-	f, err := NewProvider("", "", "", "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := NewProvider("", "", "", "")
+	if err == nil {
+		t.Fatal("expected error for unconfigured provider")
 	}
-	if f == nil {
-		t.Fatal("expected non-nil Func")
+	if !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("expected not-configured error, got: %v", err)
 	}
 }
 

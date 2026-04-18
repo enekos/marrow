@@ -42,7 +42,7 @@ func TestLoad_Defaults(t *testing.T) {
 			RepoName:       "",
 		},
 		Embedding: EmbeddingConfig{
-			Provider: "mock",
+			Provider: "",
 			Model:    "",
 			BaseURL:  "",
 			APIKey:   "",
@@ -309,7 +309,7 @@ func TestSetDefaults(t *testing.T) {
 		{"sync.source", "local"},
 		{"sync.default_lang", "en"},
 		{"github_app.app_id", int64(0)},
-		{"embedding.provider", "mock"},
+		{"embedding.provider", ""},
 	}
 
 	for _, tt := range tests {

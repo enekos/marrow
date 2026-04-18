@@ -155,8 +155,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("github_app.repo_name", "")
 	v.SetDefault("github_app.webhook_secret", "")
 
-	// Embedding
-	v.SetDefault("embedding.provider", "mock")
+	// Embedding — intentionally unset so users must opt in to mock for tests
+	// or configure a real provider (ollama/openai) for production.
+	v.SetDefault("embedding.provider", "")
 	v.SetDefault("embedding.model", "")
 	v.SetDefault("embedding.base_url", "")
 	v.SetDefault("embedding.api_key", "")

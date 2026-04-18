@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"math/rand/v2"
 )
@@ -12,6 +13,24 @@ const EmbeddingDim = 384
 
 // Func generates a vector for the given text.
 type Func func(ctx context.Context, text string) ([]float32, error)
+
+// Validate probes the embedder with a canary string and verifies the output
+// dimension matches the DB schema. Run at startup so misconfigured providers
+// (e.g. nomic-embed-text → 768, text-embedding-3-small → 1536) fail loudly
+// instead of producing silent INSERT errors at index time.
+func Validate(ctx context.Context, f Func) error {
+	if f == nil {
+		return fmt.Errorf("embedder is nil")
+	}
+	vec, err := f(ctx, "marrow embedding validation canary")
+	if err != nil {
+		return fmt.Errorf("canary embedding failed: %w", err)
+	}
+	if len(vec) != EmbeddingDim {
+		return fmt.Errorf("embedding dimension mismatch: provider returned %d, schema requires %d", len(vec), EmbeddingDim)
+	}
+	return nil
+}
 
 // NewMock returns a deterministic mock embedding function.
 // It produces stable 384-dim normalized vectors derived from a SHA-256 hash of the input text.

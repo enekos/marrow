@@ -13,9 +13,13 @@ import (
 )
 
 // NewProvider creates an embedding Func based on the provider name.
+// An empty provider is a configuration error; callers must choose explicitly
+// so mocks are never used in production by accident.
 func NewProvider(provider, model, baseURL, apiKey string) (Func, error) {
 	switch strings.ToLower(provider) {
-	case "mock", "":
+	case "":
+		return nil, fmt.Errorf("embedding.provider not configured; set it to one of: mock, ollama, openai")
+	case "mock":
 		return NewMock(), nil
 	case "ollama":
 		if baseURL == "" {
