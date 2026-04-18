@@ -1,11 +1,11 @@
 [
   {
     "title": "The Rust Programming Language",
-    "score": 0.473997
+    "score": 0.473996
   },
   {
     "title": "Go Introduction",
-    "score": 0.315522
+    "score": 0.315521
   },
   {
     "title": "Go Modules Guide",

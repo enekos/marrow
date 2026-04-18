@@ -227,14 +227,20 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 		return nil, err
 	}
 
-	// 3. Normalise BM25 and vector similarities independently
+	// 3. Normalise BM25 and vector similarities independently.
+	//
+	// FTS5's bm25() is always <= 0 for matched rows, where more-negative
+	// means a stronger match. We map that to a (0, 1] magnitude with
+	// 1 / (1 - bm25): a bm25 of 0 gives 1.0, a strong -5 gives ~0.17, and
+	// a weak -0.5 gives ~0.67. Using the negated value keeps the ordering
+	// consistent with "higher = better" that the blend expects.
+	//
+	// The previous implementation clamped negative bm25 to 0, which made
+	// every norm exactly 1.0 and turned the alpha-blended contribution into
+	// a constant — silently disabling half of the FTS ranking signal.
 	ftsNormMap := make(map[int64]float64, len(ftsOrder))
 	for _, id := range ftsOrder {
-		bm25 := ftsInfos[id].bm25
-		if bm25 < 0 {
-			bm25 = 0
-		}
-		ftsNormMap[id] = 1.0 / (1.0 + bm25)
+		ftsNormMap[id] = 1.0 / (1.0 - ftsInfos[id].bm25)
 	}
 	vecNormMap := make(map[int64]float64, len(vecOrder))
 	for _, id := range vecOrder {

@@ -6,7 +6,7 @@ Expected heuristics:
   4. Unrelated Document  -> no boost + oldest
 
 Actual ranking:
-1. Go Modules           score=0.474301
-2. Go Tutorial          score=0.352701
-3. Something Else       score=0.306060
-4. Unrelated Document   score=0.298534
+1. Go Modules           score=0.474300
+2. Go Tutorial          score=0.352700
+3. Something Else       score=0.306059
+4. Unrelated Document   score=0.298533
