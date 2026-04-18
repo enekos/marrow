@@ -106,8 +106,17 @@ func TestIndex_VectorUpdated(t *testing.T) {
 		t.Fatalf("get doc id: %v", err)
 	}
 
+	// Vectors are now keyed on document_chunks.id, so we JOIN back to find
+	// the chunk(s) for this document and fetch their embeddings.
+	vecByDoc := `
+		SELECT v.embedding
+		FROM documents_vec v
+		JOIN document_chunks c ON c.id = v.rowid
+		WHERE c.document_id = ?
+	`
+
 	var firstVec []byte
-	if err := database.QueryRow(`SELECT embedding FROM documents_vec WHERE rowid = ?`, docID).Scan(&firstVec); err != nil {
+	if err := database.QueryRow(vecByDoc, docID).Scan(&firstVec); err != nil {
 		t.Fatalf("get first vec: %v", err)
 	}
 	firstF32, err := testutil.DeserializeF32(firstVec)
@@ -115,7 +124,7 @@ func TestIndex_VectorUpdated(t *testing.T) {
 		t.Fatalf("deserialize first vec: %v", err)
 	}
 
-	// Update with different embedding
+	// Update with different embedding.
 	doc.Hash = "hash2"
 	doc.Embedding = mustEmbed(embedFn, "vector test second")
 	if err := ix.Index(ctx, doc); err != nil {
@@ -123,7 +132,7 @@ func TestIndex_VectorUpdated(t *testing.T) {
 	}
 
 	var secondVec []byte
-	if err := database.QueryRow(`SELECT embedding FROM documents_vec WHERE rowid = ?`, docID).Scan(&secondVec); err != nil {
+	if err := database.QueryRow(vecByDoc, docID).Scan(&secondVec); err != nil {
 		t.Fatalf("get second vec: %v", err)
 	}
 	secondF32, err := testutil.DeserializeF32(secondVec)
@@ -135,9 +144,12 @@ func TestIndex_VectorUpdated(t *testing.T) {
 		t.Fatalf("expected vector to be updated, but it remained the same")
 	}
 
-	// Ensure only one vector row exists for this document
+	// Single-embedding docs produce exactly one chunk, so exactly one vec row.
 	var vecCount int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM documents_vec WHERE rowid = ?`, docID).Scan(&vecCount); err != nil {
+	if err := database.QueryRow(
+		`SELECT COUNT(*) FROM documents_vec v JOIN document_chunks c ON c.id = v.rowid WHERE c.document_id = ?`,
+		docID,
+	).Scan(&vecCount); err != nil {
 		t.Fatalf("count vec rows: %v", err)
 	}
 	if vecCount != 1 {
@@ -251,6 +263,84 @@ func TestIndex_Concurrent(t *testing.T) {
 		if title != doc.Title {
 			t.Fatalf("expected title %q for %s, got %q", doc.Title, doc.Path, title)
 		}
+	}
+}
+
+func TestIndex_MultipleChunksPerDocument(t *testing.T) {
+	ctx := context.Background()
+	database := setupTestDB(t)
+	ix := NewIndexer(database)
+	embedFn := embed.NewMock()
+
+	doc := Document{
+		Path:        "/notes/chunked.md",
+		Hash:        "h1",
+		Title:       "Chunked",
+		Lang:        "en",
+		Source:      "test",
+		DocType:     "markdown",
+		StemmedText: "chunked doc full text for fts",
+		Chunks: []Chunk{
+			{Index: 0, Text: "first chunk text", Embedding: mustEmbed(embedFn, "first chunk text")},
+			{Index: 1, Text: "second chunk text", Embedding: mustEmbed(embedFn, "second chunk text")},
+			{Index: 2, Text: "third chunk text", Embedding: mustEmbed(embedFn, "third chunk text")},
+		},
+	}
+
+	if err := ix.Index(ctx, doc); err != nil {
+		t.Fatalf("index chunked: %v", err)
+	}
+
+	var docID int64
+	if err := database.QueryRow(`SELECT id FROM documents WHERE path = ?`, doc.Path).Scan(&docID); err != nil {
+		t.Fatalf("get doc id: %v", err)
+	}
+
+	var chunkCount int
+	if err := database.QueryRow(
+		`SELECT COUNT(*) FROM document_chunks WHERE document_id = ?`, docID,
+	).Scan(&chunkCount); err != nil {
+		t.Fatalf("count chunks: %v", err)
+	}
+	if chunkCount != 3 {
+		t.Fatalf("expected 3 chunks, got %d", chunkCount)
+	}
+
+	var vecCount int
+	if err := database.QueryRow(
+		`SELECT COUNT(*) FROM documents_vec v JOIN document_chunks c ON c.id = v.rowid WHERE c.document_id = ?`,
+		docID,
+	).Scan(&vecCount); err != nil {
+		t.Fatalf("count vec: %v", err)
+	}
+	if vecCount != 3 {
+		t.Fatalf("expected 3 vec rows, got %d", vecCount)
+	}
+
+	// Re-indexing must replace chunks atomically — no leftover chunks or vecs.
+	doc.Chunks = []Chunk{
+		{Index: 0, Text: "replacement", Embedding: mustEmbed(embedFn, "replacement")},
+	}
+	if err := ix.Index(ctx, doc); err != nil {
+		t.Fatalf("re-index: %v", err)
+	}
+
+	if err := database.QueryRow(
+		`SELECT COUNT(*) FROM document_chunks WHERE document_id = ?`, docID,
+	).Scan(&chunkCount); err != nil {
+		t.Fatalf("count chunks after: %v", err)
+	}
+	if chunkCount != 1 {
+		t.Fatalf("expected 1 chunk after reindex, got %d", chunkCount)
+	}
+	if err := database.QueryRow(
+		`SELECT COUNT(*) FROM documents_vec v JOIN document_chunks c ON c.id = v.rowid WHERE c.document_id = ?`,
+		docID,
+	).Scan(&vecCount); err != nil {
+		t.Fatalf("count vec after: %v", err)
+	}
+	if vecCount != 1 {
+		t.Fatalf("expected 1 vec row after reindex, got %d", vecCount)
 	}
 }
 

@@ -11,6 +11,31 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// insertChunkWithVec seeds a document_chunks row and its matching
+// documents_vec row, returning the chunk id. Exists so tests can exercise
+// the chunk-keyed vector schema without duplicating the two-insert dance.
+func insertChunkWithVec(t *testing.T, db *DB, docID int64, chunkIndex int, vecBlob []byte) int64 {
+	t.Helper()
+	res, err := db.Exec(
+		`INSERT INTO document_chunks (document_id, chunk_index, text) VALUES (?, ?, ?)`,
+		docID, chunkIndex, "chunk text",
+	)
+	if err != nil {
+		t.Fatalf("insert chunk: %v", err)
+	}
+	chunkID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("chunk last id: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO documents_vec(rowid, embedding) VALUES (?, ?)`,
+		chunkID, vecBlob,
+	); err != nil {
+		t.Fatalf("insert vec: %v", err)
+	}
+	return chunkID
+}
+
 func TestOpen_Memory(t *testing.T) {
 	db, err := Open(":memory:")
 	if err != nil {
@@ -163,12 +188,8 @@ func TestDeleteDocumentsByPaths(t *testing.T) {
 	}
 
 	blob, _ := SerializeVec(make([]float32, 384))
-	if _, err := db.ExecContext(ctx, `INSERT INTO documents_vec(rowid, embedding) VALUES (?, ?)`, idA, blob); err != nil {
-		t.Fatalf("insert vec a failed: %v", err)
-	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO documents_vec(rowid, embedding) VALUES (?, ?)`, idB, blob); err != nil {
-		t.Fatalf("insert vec b failed: %v", err)
-	}
+	chunkA := insertChunkWithVec(t, db, idA, 0, blob)
+	_ = insertChunkWithVec(t, db, idB, 0, blob)
 
 	// Empty slice should be no-op
 	if err := repo.DeleteDocumentsByPaths(ctx, []string{}); err != nil {
@@ -195,11 +216,11 @@ func TestDeleteDocumentsByPaths(t *testing.T) {
 		t.Errorf("expected 0 fts rows for idA, got %d", count)
 	}
 
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM documents_vec WHERE rowid = ?`, idA).Scan(&count); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM documents_vec WHERE rowid = ?`, chunkA).Scan(&count); err != nil {
 		t.Fatalf("count vec a failed: %v", err)
 	}
 	if count != 0 {
-		t.Errorf("expected 0 vec rows for idA, got %d", count)
+		t.Errorf("expected 0 vec rows for chunkA, got %d", count)
 	}
 
 	// Non-existent path should be harmless
@@ -387,11 +408,10 @@ func TestMaintain(t *testing.T) {
 		t.Fatalf("insert fts keep failed: %v", err)
 	}
 	blob, _ := SerializeVec(make([]float32, 384))
-	if _, err := db.ExecContext(ctx, `INSERT INTO documents_vec(rowid, embedding) VALUES (?, ?)`, idKeep, blob); err != nil {
-		t.Fatalf("insert vec keep failed: %v", err)
-	}
+	chunkKeep := insertChunkWithVec(t, db, idKeep, 0, blob)
 
-	// Insert orphaned fts and vec rows (without corresponding documents row)
+	// Orphaned vec: rowid points to no chunk, so Maintain should prune it.
+	// Orphaned FTS row: rowid 9999 points to no document, also pruned.
 	orphanID := int64(9999)
 	if _, err := db.ExecContext(ctx, `INSERT INTO documents_fts(rowid, title, content) VALUES (?, ?, ?)`, orphanID, "Orphan", "orphan content"); err != nil {
 		t.Fatalf("insert fts orphan failed: %v", err)
@@ -419,7 +439,7 @@ func TestMaintain(t *testing.T) {
 		t.Errorf("expected orphaned fts row to be deleted, got %d", count)
 	}
 
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM documents_vec WHERE rowid = ?`, idKeep).Scan(&count); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM documents_vec WHERE rowid = ?`, chunkKeep).Scan(&count); err != nil {
 		t.Fatalf("count vec keep failed: %v", err)
 	}
 	if count != 1 {
@@ -457,9 +477,7 @@ func TestMaintain_PruneFTSAndVacuum(t *testing.T) {
 		t.Fatalf("insert fts failed: %v", err)
 	}
 	blob, _ := SerializeVec(make([]float32, 384))
-	if _, err := db.ExecContext(ctx, `INSERT INTO documents_vec(rowid, embedding) VALUES (?, ?)`, idDoc, blob); err != nil {
-		t.Fatalf("insert vec failed: %v", err)
-	}
+	chunkDoc := insertChunkWithVec(t, db, idDoc, 0, blob)
 
 	// Insert another document that will remain to ensure we don't over-prune.
 	res2, err := db.ExecContext(ctx,
@@ -474,11 +492,10 @@ func TestMaintain_PruneFTSAndVacuum(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `INSERT INTO documents_fts(rowid, title, content) VALUES (?, ?, ?)`, idKeep, "Keep", "keep content"); err != nil {
 		t.Fatalf("insert keep fts failed: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO documents_vec(rowid, embedding) VALUES (?, ?)`, idKeep, blob); err != nil {
-		t.Fatalf("insert keep vec failed: %v", err)
-	}
+	chunkKeep := insertChunkWithVec(t, db, idKeep, 0, blob)
 
-	// Delete the first document directly, leaving orphaned FTS and vec rows.
+	// Delete the first document directly. FK ON DELETE CASCADE removes its
+	// chunks row; the orphaned FTS and vec rows are what Maintain must prune.
 	if _, err := db.ExecContext(ctx, `DELETE FROM documents WHERE id = ?`, idDoc); err != nil {
 		t.Fatalf("delete document failed: %v", err)
 	}
@@ -497,7 +514,7 @@ func TestMaintain_PruneFTSAndVacuum(t *testing.T) {
 		t.Errorf("expected orphaned fts row to be deleted, got %d", count)
 	}
 
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM documents_vec WHERE rowid = ?`, idDoc).Scan(&count); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM documents_vec WHERE rowid = ?`, chunkDoc).Scan(&count); err != nil {
 		t.Fatalf("count orphaned vec failed: %v", err)
 	}
 	if count != 0 {
@@ -512,7 +529,7 @@ func TestMaintain_PruneFTSAndVacuum(t *testing.T) {
 		t.Errorf("expected keep fts row to remain, got %d", count)
 	}
 
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM documents_vec WHERE rowid = ?`, idKeep).Scan(&count); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM documents_vec WHERE rowid = ?`, chunkKeep).Scan(&count); err != nil {
 		t.Fatalf("count keep vec failed: %v", err)
 	}
 	if count != 1 {

@@ -121,7 +121,7 @@ func (s *GitHubSyncer) indexItem(ctx context.Context, path, title, body string, 
 		lang = "en"
 	}
 	stemmed := stemmer.StemText(content, lang)
-	vec, err := s.EmbedFn(ctx, content)
+	chunks, err := embedChunks(ctx, s.EmbedFn, content)
 	if err != nil {
 		return fmt.Errorf("embed %s: %w", path, err)
 	}
@@ -132,7 +132,7 @@ func (s *GitHubSyncer) indexItem(ctx context.Context, path, title, body string, 
 		Title:       title,
 		Lang:        lang,
 		StemmedText: stemmed,
-		Embedding:   vec,
+		Chunks:      chunks,
 		Source:      s.Source,
 		DocType:     docType,
 	})

@@ -173,29 +173,55 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 		return nil, err
 	}
 
-	// 2. Query Vector and build rank map with distances
+	// 2. Query vectors over chunks and collapse to best chunk per document.
+	//
+	// Each vector now belongs to a chunk, so k nearest chunks can map to
+	// fewer distinct documents. We over-fetch (limit*10) from vec and then
+	// keep only the first — i.e. lowest-distance — chunk seen per document.
+	// This gives us limit*3 unique docs in rank order while still letting
+	// vec0 push the LIMIT into its KNN traversal.
 	type vecInfo struct {
 		rank     int
 		distance float64
 	}
 	vecInfos := make(map[int64]vecInfo)
 	var vecOrder []int64
-	vecSQL := `SELECT rowid, distance FROM documents_vec WHERE embedding MATCH ? ORDER BY distance LIMIT ?`
-	vecRows, err := e.db.QueryContext(ctx, vecSQL, qblob, limit*3)
+	bestChunkText := make(map[int64]string)
+	vecSQL := `
+		SELECT c.document_id, v.distance, c.text
+		FROM (
+			SELECT rowid, distance
+			FROM documents_vec
+			WHERE embedding MATCH ?
+			ORDER BY distance
+			LIMIT ?
+		) v
+		JOIN document_chunks c ON c.id = v.rowid
+		ORDER BY v.distance
+	`
+	vecRows, err := e.db.QueryContext(ctx, vecSQL, qblob, limit*10)
 	if err != nil {
 		return nil, fmt.Errorf("vec query: %w", err)
 	}
 	defer vecRows.Close()
 	rank = 1
 	for vecRows.Next() {
-		var id int64
+		var docID int64
 		var dist float64
-		if err := vecRows.Scan(&id, &dist); err != nil {
+		var text string
+		if err := vecRows.Scan(&docID, &dist, &text); err != nil {
 			return nil, err
 		}
-		vecInfos[id] = vecInfo{rank: rank, distance: dist}
-		vecOrder = append(vecOrder, id)
+		if _, seen := vecInfos[docID]; seen {
+			continue
+		}
+		vecInfos[docID] = vecInfo{rank: rank, distance: dist}
+		vecOrder = append(vecOrder, docID)
+		bestChunkText[docID] = text
 		rank++
+		if rank > limit*3 {
+			break
+		}
 	}
 	if err := vecRows.Err(); err != nil {
 		return nil, err
@@ -298,13 +324,20 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 			score *= recencyBoost(lastMod.Time, now)
 		}
 
+		snippet := ftsInfos[s.id].snippet
+		if snippet == "" {
+			// Vector-only hit: use the best matching chunk text directly.
+			if ct, ok := bestChunkText[s.id]; ok {
+				snippet = ct
+			}
+		}
 		results = append(results, Result{
 			ID:      s.id,
 			Path:    path,
 			Title:   title,
 			DocType: docType,
 			Score:   score,
-			Snippet: ftsInfos[s.id].snippet,
+			Snippet: snippet,
 		})
 	}
 
@@ -323,26 +356,22 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 		results = results[:limit]
 	}
 
-	// 8. Fill snippets for vector-only hits and attach highlights + token
-	// estimates. This runs only on the final top-N to keep the cost bounded.
-	e.enrichResults(ctx, results, stemmedTokens)
+	// 8. Attach highlights and token estimates. Snippets are already filled
+	// from step 6 (FTS snippet or best-matching chunk text).
+	e.enrichResults(results, stemmedTokens)
 
 	return results, nil
 }
 
-// enrichResults populates Snippet (with a content-prefix fallback for
-// vector-only hits), Highlights, and TokenEstimate in place.
-func (e *Engine) enrichResults(ctx context.Context, results []Result, stemmedTokens []string) {
+// enrichResults attaches Highlights and TokenEstimate to each result.
+// Snippet enrichment happens inline during result assembly.
+func (e *Engine) enrichResults(results []Result, stemmedTokens []string) {
 	for i := range results {
-		if results[i].Snippet == "" {
-			var content string
-			err := e.db.QueryRowContext(ctx,
-				`SELECT substr(content, 1, ?) FROM documents_fts WHERE rowid = ?`,
-				fallbackSnippetChars, results[i].ID,
-			).Scan(&content)
-			if err == nil {
-				results[i].Snippet = strings.TrimSpace(content)
-			}
+		if results[i].Snippet != "" && len(results[i].Snippet) > fallbackSnippetChars {
+			// Chunk text can be up to chunker.DefaultMaxChars (~1500); cap
+			// it here so clients don't accidentally blow their context
+			// window on a single result.
+			results[i].Snippet = strings.TrimSpace(results[i].Snippet[:fallbackSnippetChars]) + "…"
 		}
 		if len(stemmedTokens) > 0 {
 			// Return unique tokens in stable order for deterministic output.

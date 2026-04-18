@@ -29,6 +29,11 @@ func Open(path string) (*DB, error) {
 	if err := sqlDB.Ping(); err != nil {
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
+	// go-sqlite3's DSN-pragma support is version-sensitive; set FKs
+	// explicitly so cascade behavior on document_chunks is reliable.
+	if _, err := sqlDB.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+		return nil, fmt.Errorf("enable foreign keys: %w", err)
+	}
 
 	db := &DB{DB: sqlDB}
 	if err := db.migrate(); err != nil {
@@ -38,6 +43,32 @@ func Open(path string) (*DB, error) {
 }
 
 func (db *DB) migrate() error {
+	// Pre-chunking schema detection: the old schema stored one vector per
+	// document keyed on documents.id. The new schema stores one vector per
+	// chunk keyed on document_chunks.id. The two rowid semantics are
+	// incompatible, so if we find a vec table without the companion chunks
+	// table we drop the vec table and recreate it below. Users lose vector
+	// data and must re-sync to rebuild; FTS and document rows survive.
+	var chunksExists int
+	if err := db.QueryRow(
+		`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='document_chunks'`,
+	).Scan(&chunksExists); err != nil {
+		return fmt.Errorf("detect chunks table: %w", err)
+	}
+	if chunksExists == 0 {
+		var oldVecExists int
+		if err := db.QueryRow(
+			`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='documents_vec'`,
+		).Scan(&oldVecExists); err != nil {
+			return fmt.Errorf("detect legacy vec table: %w", err)
+		}
+		if oldVecExists > 0 {
+			if _, err := db.Exec(`DROP TABLE documents_vec`); err != nil {
+				return fmt.Errorf("drop legacy documents_vec: %w", err)
+			}
+		}
+	}
+
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS documents (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,9 +85,19 @@ func (db *DB) migrate() error {
 			content,
 			tokenize='unicode61'
 		);`,
+		// documents_vec.rowid refers to document_chunks.id, not documents.id.
 		`CREATE VIRTUAL TABLE IF NOT EXISTS documents_vec USING vec0(
 			embedding FLOAT[384]
 		);`,
+		`CREATE TABLE IF NOT EXISTS document_chunks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			document_id INTEGER NOT NULL,
+			chunk_index INTEGER NOT NULL,
+			text TEXT NOT NULL,
+			FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+			UNIQUE (document_id, chunk_index)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_chunks_document ON document_chunks(document_id);`,
 		`CREATE TABLE IF NOT EXISTS sync_state (
 			source TEXT PRIMARY KEY,
 			last_sync_at DATETIME,
@@ -72,7 +113,8 @@ func (db *DB) migrate() error {
 			return err
 		}
 	}
-	// Best-effort migrations: add columns if table was created before they existed.
+	// Best-effort column additions for DBs created before these columns
+	// existed. ALTER TABLE ADD COLUMN is idempotent-by-error so we ignore.
 	_, _ = db.Exec(`ALTER TABLE documents ADD COLUMN source TEXT DEFAULT 'local'`)
 	_, _ = db.Exec(`ALTER TABLE documents ADD COLUMN doc_type TEXT DEFAULT 'markdown'`)
 	return nil
@@ -103,12 +145,26 @@ type Stats struct {
 	Sources     []string
 }
 
-// Maintain runs VACUUM and prunes orphaned vec/fts rows.
+// Maintain runs VACUUM and prunes orphaned vec/fts/chunk rows.
+//
+// Order matters: orphaned chunks are pruned first so that the subsequent
+// vec pruner sees an up-to-date chunks table. Without that, a force-deleted
+// document would leave its chunks behind (if FK cascade failed to fire on
+// this connection) and the vec prune would believe they were still live.
 func (db *DB) Maintain(ctx context.Context) error {
-	if _, err := db.ExecContext(ctx, `DELETE FROM documents_vec WHERE rowid NOT IN (SELECT id FROM documents)`); err != nil {
+	if _, err := db.ExecContext(ctx,
+		`DELETE FROM document_chunks WHERE document_id NOT IN (SELECT id FROM documents)`,
+	); err != nil {
+		return fmt.Errorf("prune chunks: %w", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`DELETE FROM documents_vec WHERE rowid NOT IN (SELECT id FROM document_chunks)`,
+	); err != nil {
 		return fmt.Errorf("prune vec: %w", err)
 	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM documents_fts WHERE rowid NOT IN (SELECT id FROM documents)`); err != nil {
+	if _, err := db.ExecContext(ctx,
+		`DELETE FROM documents_fts WHERE rowid NOT IN (SELECT id FROM documents)`,
+	); err != nil {
 		return fmt.Errorf("prune fts: %w", err)
 	}
 	if _, err := db.ExecContext(ctx, `VACUUM`); err != nil {

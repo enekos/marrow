@@ -35,9 +35,15 @@ func (r *DocumentRepo) DeleteDocumentsByPaths(ctx context.Context, paths []strin
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM documents_vec WHERE rowid = ?`, rowid); err != nil {
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM documents_vec WHERE rowid IN (SELECT id FROM document_chunks WHERE document_id = ?)`,
+			rowid,
+		); err != nil {
 			return err
 		}
+		// FK ON DELETE CASCADE will remove document_chunks when the parent
+		// document row is deleted. Still do FTS and documents cleanup here
+		// because FTS is a virtual table and the cascade is document-keyed.
 		if _, err := tx.ExecContext(ctx, `DELETE FROM documents_fts WHERE rowid = ?`, rowid); err != nil {
 			return err
 		}

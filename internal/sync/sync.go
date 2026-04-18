@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"marrow/internal/chunker"
 	"marrow/internal/db"
 	"marrow/internal/embed"
 	"marrow/internal/githubapi"
@@ -141,7 +142,7 @@ func (o *Orchestrator) indexFiles(ctx context.Context, paths []string) error {
 		}
 		hash := fmt.Sprintf("%x", watcher.HashBytes(data))
 		stemmed := stemmer.StemText(md.Text, md.Lang)
-		vec, err := o.EmbedFn(ctx, md.Text)
+		chunks, err := embedChunks(ctx, o.EmbedFn, md.Text)
 		if err != nil {
 			return fmt.Errorf("embed %s: %w", p, err)
 		}
@@ -151,7 +152,7 @@ func (o *Orchestrator) indexFiles(ctx context.Context, paths []string) error {
 			Title:       md.Title,
 			Lang:        md.Lang,
 			StemmedText: stemmed,
-			Embedding:   vec,
+			Chunks:      chunks,
 			Source:      o.Source,
 			DocType:     "markdown",
 		}
@@ -160,6 +161,25 @@ func (o *Orchestrator) indexFiles(ctx context.Context, paths []string) error {
 		}
 	}
 	return nil
+}
+
+// embedChunks splits text into chunks and embeds each. Empty text produces a
+// single chunk containing the empty string so the document still has a
+// vector (consistent with historic behaviour).
+func embedChunks(ctx context.Context, fn embed.Func, text string) ([]index.Chunk, error) {
+	pieces := chunker.Chunk(text, chunker.DefaultMaxChars)
+	if len(pieces) == 0 {
+		pieces = []string{""}
+	}
+	chunks := make([]index.Chunk, 0, len(pieces))
+	for i, p := range pieces {
+		vec, err := fn(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		chunks = append(chunks, index.Chunk{Index: i, Text: p, Embedding: vec})
+	}
+	return chunks, nil
 }
 
 func (o *Orchestrator) removePaths(ctx context.Context, paths []string) error {

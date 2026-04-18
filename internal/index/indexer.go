@@ -8,7 +8,24 @@ import (
 	"marrow/internal/db"
 )
 
+// Chunk is one embedded passage of a document. Chunks are what vector
+// similarity is evaluated against; one long document typically produces
+// multiple chunks to preserve local semantic signal.
+type Chunk struct {
+	Index     int
+	Text      string
+	Embedding []float32
+}
+
 // Document represents a parsed markdown file ready for indexing.
+//
+// StemmedText is the document-level text written into the FTS content
+// column (keyword search still operates at document granularity).
+//
+// Chunks carries one entry per embedded passage. If Chunks is empty and
+// Embedding is set, the indexer synthesizes a single chunk covering the
+// whole document — a convenience that keeps short docs and unit tests
+// from needing to build a Chunks slice by hand.
 type Document struct {
 	Path        string
 	Hash        string
@@ -17,6 +34,7 @@ type Document struct {
 	Source      string
 	DocType     string
 	StemmedText string
+	Chunks      []Chunk
 	Embedding   []float32
 }
 
@@ -37,8 +55,18 @@ func NewIndexer(database DBConn) *Indexer {
 	return &Indexer{db: database}
 }
 
-// Index persists a document into documents, documents_fts, and documents_vec.
+// Index persists a document into documents, documents_fts, document_chunks,
+// and documents_vec. Re-indexing an existing document replaces its chunks
+// and their vectors atomically.
 func (ix *Indexer) Index(ctx context.Context, doc Document) error {
+	chunks := doc.Chunks
+	if len(chunks) == 0 {
+		if doc.Embedding == nil {
+			return fmt.Errorf("index: document %q has no Chunks and no Embedding", doc.Path)
+		}
+		chunks = []Chunk{{Index: 0, Text: doc.StemmedText, Embedding: doc.Embedding}}
+	}
+
 	tx, err := ix.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -71,7 +99,7 @@ func (ix *Indexer) Index(ctx context.Context, doc Document) error {
 		}
 	}
 
-	// Sync FTS row: delete old row first to avoid virtual table quirks
+	// Sync FTS row: delete old row first to avoid virtual table quirks.
 	_, _ = tx.ExecContext(ctx, `DELETE FROM documents_fts WHERE rowid = ?`, rowid)
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO documents_fts (rowid, title, content) VALUES (?, ?, ?)`,
@@ -79,16 +107,44 @@ func (ix *Indexer) Index(ctx context.Context, doc Document) error {
 		return fmt.Errorf("insert fts: %w", err)
 	}
 
-	// Sync vector row: delete old row first
-	_, _ = tx.ExecContext(ctx, `DELETE FROM documents_vec WHERE rowid = ?`, rowid)
-	vecBlob, err := db.SerializeVec(doc.Embedding)
-	if err != nil {
-		return fmt.Errorf("serialize vec: %w", err)
+	// Replace chunks + vectors. Delete existing chunk vectors first (vec
+	// is a virtual table, so FK cascade cannot reach it) then the chunk
+	// rows themselves. Re-inserting lets AUTOINCREMENT hand out fresh IDs
+	// so we never collide with stale vec rowids.
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM documents_vec WHERE rowid IN (SELECT id FROM document_chunks WHERE document_id = ?)`,
+		rowid,
+	); err != nil {
+		return fmt.Errorf("delete old vec: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO documents_vec (rowid, embedding) VALUES (?, ?)`,
-		rowid, vecBlob); err != nil {
-		return fmt.Errorf("insert vec: %w", err)
+		`DELETE FROM document_chunks WHERE document_id = ?`, rowid,
+	); err != nil {
+		return fmt.Errorf("delete old chunks: %w", err)
+	}
+
+	for _, c := range chunks {
+		res, err := tx.ExecContext(ctx,
+			`INSERT INTO document_chunks (document_id, chunk_index, text) VALUES (?, ?, ?)`,
+			rowid, c.Index, c.Text,
+		)
+		if err != nil {
+			return fmt.Errorf("insert chunk: %w", err)
+		}
+		chunkID, err := res.LastInsertId()
+		if err != nil {
+			return fmt.Errorf("chunk last insert id: %w", err)
+		}
+		vecBlob, err := db.SerializeVec(c.Embedding)
+		if err != nil {
+			return fmt.Errorf("serialize vec: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO documents_vec (rowid, embedding) VALUES (?, ?)`,
+			chunkID, vecBlob,
+		); err != nil {
+			return fmt.Errorf("insert vec: %w", err)
+		}
 	}
 
 	return tx.Commit()
