@@ -46,6 +46,14 @@ const snippetMaxTokens = 32
 // fallbackSnippetChars bounds content-prefix fallbacks for vector-only hits.
 const fallbackSnippetChars = 300
 
+// FTS5 bm25 column weights: title is weighted 5x relative to content. BM25
+// returns non-positive scores where more-negative = better match, so a higher
+// weight makes title matches dominate the ranking.
+const (
+	bm25TitleWeight   = 5.0
+	bm25ContentWeight = 1.0
+)
+
 // Filter constrains search results.
 type Filter struct {
 	Source   string
@@ -139,9 +147,10 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	ftsInfos := make(map[int64]ftsInfo)
 	var ftsOrder []int64
 	ftsSQL := fmt.Sprintf(
-		`SELECT rowid, bm25(documents_fts), snippet(documents_fts, 1, '', '', '…', %d) `+
-			`FROM documents_fts WHERE documents_fts MATCH ? ORDER BY bm25(documents_fts) LIMIT ?`,
-		snippetMaxTokens,
+		`SELECT rowid, bm25(documents_fts, %g, %g), snippet(documents_fts, 1, '', '', '…', %d) `+
+			`FROM documents_fts WHERE documents_fts MATCH ? ORDER BY bm25(documents_fts, %g, %g) LIMIT ?`,
+		bm25TitleWeight, bm25ContentWeight, snippetMaxTokens,
+		bm25TitleWeight, bm25ContentWeight,
 	)
 	ftsRows, err := e.db.QueryContext(ctx, ftsSQL, stemmedQuery, limit*3)
 	if err != nil {
