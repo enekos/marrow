@@ -8,6 +8,7 @@ import (
 
 	"marrow/internal/db"
 	"marrow/internal/embed"
+	"marrow/internal/testutil"
 )
 
 func setupTestDB(t *testing.T) *db.DB {
@@ -109,7 +110,7 @@ func TestIndex_VectorUpdated(t *testing.T) {
 	if err := database.QueryRow(`SELECT embedding FROM documents_vec WHERE rowid = ?`, docID).Scan(&firstVec); err != nil {
 		t.Fatalf("get first vec: %v", err)
 	}
-	firstF32, err := embed.DeserializeF32(firstVec)
+	firstF32, err := testutil.DeserializeF32(firstVec)
 	if err != nil {
 		t.Fatalf("deserialize first vec: %v", err)
 	}
@@ -125,7 +126,7 @@ func TestIndex_VectorUpdated(t *testing.T) {
 	if err := database.QueryRow(`SELECT embedding FROM documents_vec WHERE rowid = ?`, docID).Scan(&secondVec); err != nil {
 		t.Fatalf("get second vec: %v", err)
 	}
-	secondF32, err := embed.DeserializeF32(secondVec)
+	secondF32, err := testutil.DeserializeF32(secondVec)
 	if err != nil {
 		t.Fatalf("deserialize second vec: %v", err)
 	}

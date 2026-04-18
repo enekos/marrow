@@ -66,21 +66,3 @@ func TestNewMock_Normalization(t *testing.T) {
 	}
 }
 
-func TestSerializeDeserializeF32_RoundTrip(t *testing.T) {
-	original := []float32{1.5, -2.5, 3.14, 0.0, -0.0, float32(math.MaxFloat32), float32(math.SmallestNonzeroFloat32)}
-	buf := SerializeF32(original)
-	recovered, err := DeserializeF32(buf)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !reflect.DeepEqual(original, recovered) {
-		t.Fatalf("expected %v, got %v", original, recovered)
-	}
-}
-
-func TestDeserializeF32_InvalidLength(t *testing.T) {
-	_, err := DeserializeF32([]byte{0x01, 0x02, 0x03})
-	if err == nil {
-		t.Fatal("expected error for invalid blob length")
-	}
-}

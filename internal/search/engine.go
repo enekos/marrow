@@ -36,16 +36,22 @@ type Filter struct {
 	Lang     string
 }
 
+// DBConn is the subset of database operations required by Engine.
+type DBConn interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 // Engine executes hybrid search queries.
 type Engine struct {
-	db          *db.DB
+	db          DBConn
 	embedFn     embed.Func
 	DetectLang  bool
 	DefaultLang string
 }
 
 // NewEngine creates a search engine.
-func NewEngine(database *db.DB, embedFn embed.Func) *Engine {
+func NewEngine(database DBConn, embedFn embed.Func) *Engine {
 	if embedFn == nil {
 		embedFn = embed.NewMock()
 	}
@@ -75,7 +81,7 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	lang := langHint
 	if lang == "" {
 		if e.DetectLang {
-			lang = detectQueryLang(query)
+			lang = stemmer.DetectLanguage(query)
 		} else {
 			lang = e.DefaultLang
 		}
@@ -344,60 +350,4 @@ func recencyBoost(lastModified, now time.Time) float64 {
 	return 1.0 + recencyBoostMax*factor
 }
 
-func detectQueryLang(query string) string {
-	lower := strings.ToLower(query)
-	tokens := stemmer.Tokenize(query)
 
-	const (
-		idxEn = 0
-		idxEs = 1
-		idxEu = 2
-	)
-	var scores [3]int
-
-	// --- Character-level signals ------------------------------------------
-	for _, r := range lower {
-		switch r {
-		case 'ñ', '¿', '¡':
-			scores[idxEs] += 10
-		case 'á', 'é', 'í', 'ó', 'ú', 'ü':
-			scores[idxEs] += 5
-		}
-	}
-	// tx is extremely rare in English/Spanish; tz is also strongly Basque.
-	if strings.Contains(lower, "tx") {
-		scores[idxEu] += 5
-	}
-	if strings.Contains(lower, "tz") {
-		scores[idxEu] += 3
-	}
-
-	// --- Word-level signals -----------------------------------------------
-	spanishWords := stemmer.DetectWords["es"]
-	basqueWords := stemmer.DetectWords["eu"]
-	englishWords := stemmer.DetectWords["en"]
-
-	for _, tok := range tokens {
-		if _, ok := spanishWords[tok]; ok {
-			scores[idxEs] += 2
-		}
-		if _, ok := basqueWords[tok]; ok {
-			scores[idxEu] += 2
-		}
-		if _, ok := englishWords[tok]; ok {
-			scores[idxEn] += 2
-		}
-	}
-
-	// --- Resolve winner ---------------------------------------------------
-	maxScore := scores[idxEn]
-	lang := "en"
-	if scores[idxEs] > maxScore {
-		maxScore = scores[idxEs]
-		lang = "es"
-	}
-	if scores[idxEu] > maxScore {
-		lang = "eu"
-	}
-	return lang
-}

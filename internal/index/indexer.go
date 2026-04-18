@@ -20,13 +20,20 @@ type Document struct {
 	Embedding   []float32
 }
 
+// DBConn is the subset of database operations required by Indexer.
+type DBConn interface {
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
 // Indexer handles persistence of documents into the hybrid store.
 type Indexer struct {
-	db *db.DB
+	db DBConn
 }
 
 // NewIndexer creates a new indexer backed by the given database.
-func NewIndexer(database *db.DB) *Indexer {
+func NewIndexer(database DBConn) *Indexer {
 	return &Indexer{db: database}
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
-	"fmt"
 	"math"
 	"math/rand/v2"
 )
@@ -51,23 +50,3 @@ func NewMock() Func {
 	}
 }
 
-// SerializeF32 returns a sqlite-vec compatible blob for a float32 slice.
-func SerializeF32(vec []float32) []byte {
-	buf := make([]byte, len(vec)*4)
-	for i, v := range vec {
-		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(v))
-	}
-	return buf
-}
-
-// DeserializeF32 parses a sqlite-vec blob back into float32 slice.
-func DeserializeF32(buf []byte) ([]float32, error) {
-	if len(buf)%4 != 0 {
-		return nil, fmt.Errorf("invalid blob length %d", len(buf))
-	}
-	vec := make([]float32, len(buf)/4)
-	for i := range vec {
-		vec[i] = math.Float32frombits(binary.LittleEndian.Uint32(buf[i*4:]))
-	}
-	return vec, nil
-}

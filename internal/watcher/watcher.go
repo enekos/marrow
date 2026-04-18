@@ -70,7 +70,7 @@ func (c *Crawler) ScanIncremental(ctx context.Context, root string, since time.T
 	}
 
 	// Find deleted files: paths tracked in DB for this source but missing on disk
-	tracked, err := c.db.GetDocumentPathsBySource(ctx, source)
+	tracked, err := db.NewDocumentRepo(c.db).GetDocumentPathsBySource(ctx, source)
 	if err != nil {
 		return nil, nil, fmt.Errorf("list tracked: %w", err)
 	}

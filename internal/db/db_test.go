@@ -70,11 +70,12 @@ func TestSyncState_Roundtrip(t *testing.T) {
 		Token:      "token123",
 	}
 
-	if err := db.UpsertSyncState(ctx, state); err != nil {
+	repo := NewSyncStateRepo(db)
+	if err := repo.Upsert(ctx, state); err != nil {
 		t.Fatalf("UpsertSyncState failed: %v", err)
 	}
 
-	loaded, err := db.GetSyncState(ctx, state.Source)
+	loaded, err := repo.Get(ctx, state.Source)
 	if err != nil {
 		t.Fatalf("GetSyncState failed: %v", err)
 	}
@@ -102,11 +103,11 @@ func TestSyncState_Roundtrip(t *testing.T) {
 	newTS := ts.Add(time.Hour)
 	state.LastSyncAt = &newTS
 	state.Token = "newtoken"
-	if err := db.UpsertSyncState(ctx, state); err != nil {
+	if err := repo.Upsert(ctx, state); err != nil {
 		t.Fatalf("UpsertSyncState update failed: %v", err)
 	}
 
-	loaded2, err := db.GetSyncState(ctx, state.Source)
+	loaded2, err := repo.Get(ctx, state.Source)
 	if err != nil {
 		t.Fatalf("GetSyncState after update failed: %v", err)
 	}
@@ -118,7 +119,7 @@ func TestSyncState_Roundtrip(t *testing.T) {
 	}
 
 	// Missing source
-	_, err = db.GetSyncState(ctx, "does-not-exist")
+	_, err = repo.Get(ctx, "does-not-exist")
 	if err != sql.ErrNoRows {
 		t.Errorf("expected sql.ErrNoRows for missing source, got %v", err)
 	}
@@ -132,6 +133,7 @@ func TestDeleteDocumentsByPaths(t *testing.T) {
 	defer db.Close()
 
 	ctx := context.Background()
+	repo := NewDocumentRepo(db)
 
 	// Insert documents
 	res, err := db.ExecContext(ctx,
@@ -169,12 +171,12 @@ func TestDeleteDocumentsByPaths(t *testing.T) {
 	}
 
 	// Empty slice should be no-op
-	if err := db.DeleteDocumentsByPaths(ctx, []string{}); err != nil {
+	if err := repo.DeleteDocumentsByPaths(ctx, []string{}); err != nil {
 		t.Fatalf("DeleteDocumentsByPaths(empty) failed: %v", err)
 	}
 
 	// Delete one path
-	if err := db.DeleteDocumentsByPaths(ctx, []string{"a.md"}); err != nil {
+	if err := repo.DeleteDocumentsByPaths(ctx, []string{"a.md"}); err != nil {
 		t.Fatalf("DeleteDocumentsByPaths(a.md) failed: %v", err)
 	}
 
@@ -201,7 +203,7 @@ func TestDeleteDocumentsByPaths(t *testing.T) {
 	}
 
 	// Non-existent path should be harmless
-	if err := db.DeleteDocumentsByPaths(ctx, []string{"does-not-exist.md"}); err != nil {
+	if err := repo.DeleteDocumentsByPaths(ctx, []string{"does-not-exist.md"}); err != nil {
 		t.Fatalf("DeleteDocumentsByPaths(does-not-exist) failed: %v", err)
 	}
 
@@ -222,9 +224,10 @@ func TestDeleteDocumentsByPaths_MissingDocument(t *testing.T) {
 	defer db.Close()
 
 	ctx := context.Background()
+	repo := NewDocumentRepo(db)
 
 	// Deleting a path that does not exist should return nil and not error.
-	if err := db.DeleteDocumentsByPaths(ctx, []string{"never-existed.md"}); err != nil {
+	if err := repo.DeleteDocumentsByPaths(ctx, []string{"never-existed.md"}); err != nil {
 		t.Fatalf("DeleteDocumentsByPaths(missing) should silently continue, got error: %v", err)
 	}
 }
@@ -237,9 +240,10 @@ func TestGetDocumentPathsBySource(t *testing.T) {
 	defer db.Close()
 
 	ctx := context.Background()
+	repo := NewDocumentRepo(db)
 
 	// Empty source
-	paths, err := db.GetDocumentPathsBySource(ctx, "src1")
+	paths, err := repo.GetDocumentPathsBySource(ctx, "src1")
 	if err != nil {
 		t.Fatalf("GetDocumentPathsBySource(empty) failed: %v", err)
 	}
@@ -261,7 +265,7 @@ func TestGetDocumentPathsBySource(t *testing.T) {
 		}
 	}
 
-	paths, err = db.GetDocumentPathsBySource(ctx, "src1")
+	paths, err = repo.GetDocumentPathsBySource(ctx, "src1")
 	if err != nil {
 		t.Fatalf("GetDocumentPathsBySource(src1) failed: %v", err)
 	}
@@ -285,9 +289,10 @@ func TestGetStats(t *testing.T) {
 	defer db.Close()
 
 	ctx := context.Background()
+	repo := NewStatsRepo(db)
 
 	// Empty DB
-	stats, err := db.GetStats(ctx)
+	stats, err := repo.Get(ctx)
 	if err != nil {
 		t.Fatalf("GetStats(empty) failed: %v", err)
 	}
@@ -324,11 +329,11 @@ func TestGetStats(t *testing.T) {
 	}
 
 	ts := time.Now().UTC().Truncate(time.Second)
-	if err := db.UpsertSyncState(ctx, &SyncState{Source: "src1", LastSyncAt: &ts}); err != nil {
+	if err := NewSyncStateRepo(db).Upsert(ctx, &SyncState{Source: "src1", LastSyncAt: &ts}); err != nil {
 		t.Fatalf("UpsertSyncState failed: %v", err)
 	}
 
-	stats, err = db.GetStats(ctx)
+	stats, err = repo.Get(ctx)
 	if err != nil {
 		t.Fatalf("GetStats(populated) failed: %v", err)
 	}

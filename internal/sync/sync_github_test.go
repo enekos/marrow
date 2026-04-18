@@ -69,7 +69,7 @@ func TestRunGitHubIndexesIssuesAndPRs(t *testing.T) {
 		t.Fatalf("run github: %v", err)
 	}
 
-	paths, err := database.GetDocumentPathsBySource(ctx, "github-api")
+	paths, err := db.NewDocumentRepo(database).GetDocumentPathsBySource(ctx, "github-api")
 	if err != nil {
 		t.Fatalf("get paths: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestRunGitHubDeletesClosedItems(t *testing.T) {
 		t.Fatalf("run github second: %v", err)
 	}
 
-	paths, err := database.GetDocumentPathsBySource(ctx, "github-api")
+	paths, err := db.NewDocumentRepo(database).GetDocumentPathsBySource(ctx, "github-api")
 	if err != nil {
 		t.Fatalf("get paths: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestDeleteGitHubDocument(t *testing.T) {
 		t.Fatalf("delete: %v", err)
 	}
 
-	paths, err := database.GetDocumentPathsBySource(ctx, "github-api")
+	paths, err := db.NewDocumentRepo(database).GetDocumentPathsBySource(ctx, "github-api")
 	if err != nil {
 		t.Fatalf("get paths: %v", err)
 	}
