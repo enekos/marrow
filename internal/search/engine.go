@@ -21,13 +21,30 @@ const (
 )
 
 // Result represents a single search result.
+//
+// Snippet is a short excerpt extracted around the strongest match and is
+// intended to be fed directly into an LLM context window. Highlights lists
+// the stemmed query tokens that contributed to the match (useful for
+// client-side rendering and for signalling salience to an LLM).
+// TokenEstimate is a coarse estimate of the snippet's token count
+// (len/4 heuristic) to help callers budget context windows.
 type Result struct {
-	ID      int64   `json:"id"`
-	Path    string  `json:"path"`
-	Title   string  `json:"title"`
-	DocType string  `json:"doc_type"`
-	Score   float64 `json:"score"`
+	ID            int64    `json:"id"`
+	Path          string   `json:"path"`
+	Title         string   `json:"title"`
+	DocType       string   `json:"doc_type"`
+	Score         float64  `json:"score"`
+	Snippet       string   `json:"snippet,omitempty"`
+	Highlights    []string `json:"highlights,omitempty"`
+	TokenEstimate int      `json:"token_estimate,omitempty"`
 }
+
+// snippetMaxTokens controls FTS5 snippet() length. 32 FTS tokens is ~150–200
+// characters in English, which fits comfortably in small context budgets.
+const snippetMaxTokens = 32
+
+// fallbackSnippetChars bounds content-prefix fallbacks for vector-only hits.
+const fallbackSnippetChars = 300
 
 // Filter constrains search results.
 type Filter struct {
@@ -110,14 +127,22 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	// Build metadata filter subquery for joining with FTS/vec results.
 	filterSQL, filterArgs := buildFilterSQL(filter)
 
-	// 1. Query FTS5 and build rank map with BM25 scores
+	// 1. Query FTS5 and build rank map with BM25 scores and snippets.
+	// snippet() extracts a short excerpt around the match; we scope it to the
+	// content column (index 1) since title matches are already surfaced
+	// verbatim via the Title field.
 	type ftsInfo struct {
-		rank int
-		bm25 float64
+		rank    int
+		bm25    float64
+		snippet string
 	}
 	ftsInfos := make(map[int64]ftsInfo)
 	var ftsOrder []int64
-	ftsSQL := `SELECT rowid, bm25(documents_fts) FROM documents_fts WHERE documents_fts MATCH ? ORDER BY bm25(documents_fts) LIMIT ?`
+	ftsSQL := fmt.Sprintf(
+		`SELECT rowid, bm25(documents_fts), snippet(documents_fts, 1, '', '', '…', %d) `+
+			`FROM documents_fts WHERE documents_fts MATCH ? ORDER BY bm25(documents_fts) LIMIT ?`,
+		snippetMaxTokens,
+	)
 	ftsRows, err := e.db.QueryContext(ctx, ftsSQL, stemmedQuery, limit*3)
 	if err != nil {
 		return nil, fmt.Errorf("fts query: %w", err)
@@ -127,10 +152,11 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	for ftsRows.Next() {
 		var id int64
 		var bm25 float64
-		if err := ftsRows.Scan(&id, &bm25); err != nil {
+		var snip string
+		if err := ftsRows.Scan(&id, &bm25, &snip); err != nil {
 			return nil, err
 		}
-		ftsInfos[id] = ftsInfo{rank: rank, bm25: bm25}
+		ftsInfos[id] = ftsInfo{rank: rank, bm25: bm25, snippet: snip}
 		ftsOrder = append(ftsOrder, id)
 		rank++
 	}
@@ -269,6 +295,7 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 			Title:   title,
 			DocType: docType,
 			Score:   score,
+			Snippet: ftsInfos[s.id].snippet,
 		})
 	}
 
@@ -286,7 +313,52 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	if len(results) > limit {
 		results = results[:limit]
 	}
+
+	// 8. Fill snippets for vector-only hits and attach highlights + token
+	// estimates. This runs only on the final top-N to keep the cost bounded.
+	e.enrichResults(ctx, results, stemmedTokens)
+
 	return results, nil
+}
+
+// enrichResults populates Snippet (with a content-prefix fallback for
+// vector-only hits), Highlights, and TokenEstimate in place.
+func (e *Engine) enrichResults(ctx context.Context, results []Result, stemmedTokens []string) {
+	for i := range results {
+		if results[i].Snippet == "" {
+			var content string
+			err := e.db.QueryRowContext(ctx,
+				`SELECT substr(content, 1, ?) FROM documents_fts WHERE rowid = ?`,
+				fallbackSnippetChars, results[i].ID,
+			).Scan(&content)
+			if err == nil {
+				results[i].Snippet = strings.TrimSpace(content)
+			}
+		}
+		if len(stemmedTokens) > 0 {
+			// Return unique tokens in stable order for deterministic output.
+			seen := make(map[string]struct{}, len(stemmedTokens))
+			hl := make([]string, 0, len(stemmedTokens))
+			for _, t := range stemmedTokens {
+				if _, ok := seen[t]; ok {
+					continue
+				}
+				seen[t] = struct{}{}
+				hl = append(hl, t)
+			}
+			results[i].Highlights = hl
+		}
+		results[i].TokenEstimate = estimateTokens(results[i].Snippet)
+	}
+}
+
+// estimateTokens is a crude char/4 heuristic. Good enough for context-budget
+// planning; callers needing exact counts should tokenize with their model.
+func estimateTokens(s string) int {
+	if s == "" {
+		return 0
+	}
+	return (len(s) + 3) / 4
 }
 
 func buildFilterSQL(f Filter) (string, []interface{}) {

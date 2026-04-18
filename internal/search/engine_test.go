@@ -523,3 +523,69 @@ func TestNewEngine_PanicsOnNilEmbedFn(t *testing.T) {
 	}()
 	_ = NewEngine(nil, nil)
 }
+
+func TestSearch_EnrichesResultsWithSnippetAndHighlights(t *testing.T) {
+	ctx := context.Background()
+	database := setupTestDB(t)
+	ix := index.NewIndexer(database)
+	embedFn := embed.NewMock()
+
+	longText := strings.Repeat("filler text ", 20) +
+		"go concurrency with goroutines and channels is ergonomic " +
+		strings.Repeat("more filler ", 20)
+	doc := index.Document{
+		Path:        "/concurrency.md",
+		Hash:        "h1",
+		Title:       "Concurrency notes",
+		Lang:        "en",
+		Source:      "test",
+		StemmedText: longText,
+		Embedding:   mustEmbed(embedFn, longText),
+	}
+	if err := ix.Index(ctx, doc); err != nil {
+		t.Fatalf("index doc: %v", err)
+	}
+
+	engine := NewEngine(database, embedFn)
+	results, err := engine.Search(ctx, "goroutines", "", 5, Filter{})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("expected at least one result")
+	}
+	r := results[0]
+	if r.Snippet == "" {
+		t.Error("expected Snippet to be populated")
+	}
+	if !strings.Contains(r.Snippet, "goroutine") {
+		t.Errorf("expected snippet to contain matched term, got: %q", r.Snippet)
+	}
+	if len(r.Highlights) == 0 {
+		t.Error("expected Highlights to be populated")
+	}
+	if r.TokenEstimate == 0 {
+		t.Error("expected TokenEstimate > 0 when snippet is non-empty")
+	}
+	if r.TokenEstimate != (len(r.Snippet)+3)/4 {
+		t.Errorf("token estimate heuristic drifted: got %d for snippet len %d", r.TokenEstimate, len(r.Snippet))
+	}
+}
+
+func TestEstimateTokens(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int
+	}{
+		{"", 0},
+		{"a", 1},
+		{"abcd", 1},
+		{"abcde", 2},
+		{strings.Repeat("x", 400), 100},
+	}
+	for _, c := range cases {
+		if got := estimateTokens(c.in); got != c.want {
+			t.Errorf("estimateTokens(%q)=%d, want %d", c.in, got, c.want)
+		}
+	}
+}
