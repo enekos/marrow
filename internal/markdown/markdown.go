@@ -63,7 +63,7 @@ func extractFrontmatter(source []byte, doc *Document) ([]byte, error) {
 	fm := rest[:idx]
 	body := rest[idx+3:]
 
-	var meta map[string]interface{}
+	var meta map[string]any
 	if err := yaml.Unmarshal(fm, &meta); err != nil {
 		return source, fmt.Errorf("invalid frontmatter: %w", err)
 	}

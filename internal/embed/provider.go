@@ -71,7 +71,10 @@ type ollamaResp struct {
 }
 
 func (o *Ollama) Embed(ctx context.Context, text string) ([]float32, error) {
-	body, _ := json.Marshal(ollamaReq{Model: o.Model, Prompt: text})
+	body, err := json.Marshal(ollamaReq{Model: o.Model, Prompt: text})
+	if err != nil {
+		return nil, fmt.Errorf("marshal ollama request: %w", err)
+	}
 	req, err := http.NewRequestWithContext(ctx, "POST", o.BaseURL+"/api/embeddings", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -123,7 +126,10 @@ type openaiResp struct {
 }
 
 func (o *OpenAI) Embed(ctx context.Context, text string) ([]float32, error) {
-	body, _ := json.Marshal(openaiReq{Model: o.Model, Input: text})
+	body, err := json.Marshal(openaiReq{Model: o.Model, Input: text})
+	if err != nil {
+		return nil, fmt.Errorf("marshal openai request: %w", err)
+	}
 	req, err := http.NewRequestWithContext(ctx, "POST", o.BaseURL+"/v1/embeddings", bytes.NewReader(body))
 	if err != nil {
 		return nil, err

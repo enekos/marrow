@@ -16,37 +16,29 @@ type Syncer struct {
 	EmbedFn embed.Func
 }
 
-// SyncLocal runs an incremental sync for a local directory.
-func (s *Syncer) SyncLocal(ctx context.Context, source, defaultLang, root string) error {
-	orch := &sync.Orchestrator{
+// orchestrator returns a pre-wired sync.Orchestrator for the given source.
+func (s *Syncer) orchestrator(source, defaultLang string) *sync.Orchestrator {
+	return &sync.Orchestrator{
 		DB:          s.DB,
 		EmbedFn:     s.EmbedFn,
 		Source:      source,
 		DefaultLang: defaultLang,
 	}
-	return orch.RunLocal(ctx, root)
+}
+
+// SyncLocal runs an incremental sync for a local directory.
+func (s *Syncer) SyncLocal(ctx context.Context, source, defaultLang, root string) error {
+	return s.orchestrator(source, defaultLang).RunLocal(ctx, root)
 }
 
 // SyncGit runs a git pull/clone sync.
 func (s *Syncer) SyncGit(ctx context.Context, source, defaultLang, repoURL, token, localPath string) error {
-	orch := &sync.Orchestrator{
-		DB:          s.DB,
-		EmbedFn:     s.EmbedFn,
-		Source:      source,
-		DefaultLang: defaultLang,
-	}
-	return orch.RunGit(ctx, repoURL, token, localPath)
+	return s.orchestrator(source, defaultLang).RunGit(ctx, repoURL, token, localPath)
 }
 
 // SyncGitHubAPI fetches and indexes open issues and PRs.
 func (s *Syncer) SyncGitHubAPI(ctx context.Context, source, defaultLang string, client sync.GitHubAPIClient, owner, repo string) error {
-	orch := &sync.Orchestrator{
-		DB:          s.DB,
-		EmbedFn:     s.EmbedFn,
-		Source:      source,
-		DefaultLang: defaultLang,
-	}
-	return orch.RunGitHub(ctx, client, owner, repo)
+	return s.orchestrator(source, defaultLang).RunGitHub(ctx, client, owner, repo)
 }
 
 // SyncSource dispatches to the appropriate syncer based on source config.
@@ -60,7 +52,7 @@ func (s *Syncer) SyncSource(ctx context.Context, cfg config.SourceConfig, fallba
 		lang = fallbackLang
 	}
 	if lang == "" {
-		lang = "en"
+		lang = config.DefaultLang
 	}
 	switch cfg.Type {
 	case "local":
@@ -78,33 +70,15 @@ func (s *Syncer) SyncSource(ctx context.Context, cfg config.SourceConfig, fallba
 
 // IndexGitHubIssue indexes a single GitHub issue.
 func (s *Syncer) IndexGitHubIssue(ctx context.Context, source, defaultLang string, client sync.GitHubAPIClient, owner, repo string, number int) error {
-	orch := &sync.Orchestrator{
-		DB:          s.DB,
-		EmbedFn:     s.EmbedFn,
-		Source:      source,
-		DefaultLang: defaultLang,
-	}
-	return orch.IndexSingleIssue(ctx, client, owner, repo, number)
+	return s.orchestrator(source, defaultLang).IndexSingleIssue(ctx, client, owner, repo, number)
 }
 
 // IndexGitHubPullRequest indexes a single GitHub pull request.
 func (s *Syncer) IndexGitHubPullRequest(ctx context.Context, source, defaultLang string, client sync.GitHubAPIClient, owner, repo string, number int) error {
-	orch := &sync.Orchestrator{
-		DB:          s.DB,
-		EmbedFn:     s.EmbedFn,
-		Source:      source,
-		DefaultLang: defaultLang,
-	}
-	return orch.IndexSinglePullRequest(ctx, client, owner, repo, number)
+	return s.orchestrator(source, defaultLang).IndexSinglePullRequest(ctx, client, owner, repo, number)
 }
 
 // DeleteGitHubDocument removes a synthetic GitHub document.
 func (s *Syncer) DeleteGitHubDocument(ctx context.Context, source, defaultLang, owner, repo, docType string, number int) error {
-	orch := &sync.Orchestrator{
-		DB:          s.DB,
-		EmbedFn:     s.EmbedFn,
-		Source:      source,
-		DefaultLang: defaultLang,
-	}
-	return orch.DeleteGitHubDocument(ctx, owner, repo, docType, number)
+	return s.orchestrator(source, defaultLang).DeleteGitHubDocument(ctx, owner, repo, docType, number)
 }

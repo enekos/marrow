@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"marrow/internal/chunker"
+	"marrow/internal/config"
 	"marrow/internal/db"
 	"marrow/internal/embed"
 	"marrow/internal/githubapi"
@@ -134,7 +135,7 @@ func (o *Orchestrator) indexFiles(ctx context.Context, paths []string) error {
 		}
 		defaultLang := o.DefaultLang
 		if defaultLang == "" {
-			defaultLang = "en"
+			defaultLang = config.DefaultLang
 		}
 		md, err := markdown.ParseWithDefault(data, defaultLang)
 		if err != nil {

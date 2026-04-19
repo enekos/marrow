@@ -344,7 +344,7 @@ func TestBuildFilterSQL(t *testing.T) {
 		name     string
 		filter   Filter
 		wantSQL  string
-		wantArgs []interface{}
+		wantArgs []any
 	}{
 		{
 			name:     "empty filter",
@@ -356,31 +356,31 @@ func TestBuildFilterSQL(t *testing.T) {
 			name:     "source only",
 			filter:   Filter{Source: "test"},
 			wantSQL:  "source = ?",
-			wantArgs: []interface{}{"test"},
+			wantArgs: []any{"test"},
 		},
 		{
 			name:     "doc type only",
 			filter:   Filter{DocType: "issue"},
 			wantSQL:  "doc_type = ?",
-			wantArgs: []interface{}{"issue"},
+			wantArgs: []any{"issue"},
 		},
 		{
 			name:     "lang only",
 			filter:   Filter{Lang: "en"},
 			wantSQL:  "lang = ?",
-			wantArgs: []interface{}{"en"},
+			wantArgs: []any{"en"},
 		},
 		{
 			name:     "source and doc type",
 			filter:   Filter{Source: "test", DocType: "issue"},
 			wantSQL:  "source = ? AND doc_type = ?",
-			wantArgs: []interface{}{"test", "issue"},
+			wantArgs: []any{"test", "issue"},
 		},
 		{
 			name:     "all three",
 			filter:   Filter{Source: "test", DocType: "issue", Lang: "es"},
 			wantSQL:  "source = ? AND doc_type = ? AND lang = ?",
-			wantArgs: []interface{}{"test", "issue", "es"},
+			wantArgs: []any{"test", "issue", "es"},
 		},
 	}
 
@@ -450,9 +450,9 @@ func TestTitleBoost(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := titleBoost(tt.stemmedTitle, tt.stemmedTokens)
+			got := titleBoost(tt.stemmedTitle, tt.stemmedTokens, DefaultConfig().TitleBoostCoeff)
 			if got != tt.want {
-				t.Errorf("titleBoost(%q, %v) = %f, want %f", tt.stemmedTitle, tt.stemmedTokens, got, tt.want)
+				t.Errorf("titleBoost(%q, %v, %g) = %f, want %f", tt.stemmedTitle, tt.stemmedTokens, DefaultConfig().TitleBoostCoeff, got, tt.want)
 			}
 		})
 	}
@@ -471,13 +471,13 @@ func TestRecencyBoost(t *testing.T) {
 			name:         "future time gets max boost",
 			lastModified: now.Add(24 * time.Hour),
 			now:          now,
-			want:         1.0 + recencyBoostMax,
+			want:         1.0 + DefaultConfig().RecencyBoostMax,
 		},
 		{
 			name:         "same time gets max boost",
 			lastModified: now,
 			now:          now,
-			want:         1.0 + recencyBoostMax,
+			want:         1.0 + DefaultConfig().RecencyBoostMax,
 		},
 		{
 			name:         "very old gets no boost",
@@ -487,7 +487,7 @@ func TestRecencyBoost(t *testing.T) {
 		},
 		{
 			name:         "exactly at boundary gets no boost",
-			lastModified: now.Add(-maxRecencyDays * 24 * time.Hour),
+			lastModified: now.Add(-time.Duration(DefaultConfig().MaxRecencyDays) * 24 * time.Hour),
 			now:          now,
 			want:         1.0,
 		},
@@ -495,21 +495,21 @@ func TestRecencyBoost(t *testing.T) {
 			name:         "halfway gets half boost",
 			lastModified: now.Add(-90 * 24 * time.Hour),
 			now:          now,
-			want:         1.0 + recencyBoostMax*0.5,
+			want:         1.0 + DefaultConfig().RecencyBoostMax*0.5,
 		},
 		{
 			name:         "quarterway gets three quarter boost",
 			lastModified: now.Add(-45 * 24 * time.Hour),
 			now:          now,
-			want:         1.0 + recencyBoostMax*(1.0-45.0/maxRecencyDays),
+			want:         1.0 + DefaultConfig().RecencyBoostMax*(1.0-45.0/DefaultConfig().MaxRecencyDays),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := recencyBoost(tt.lastModified, tt.now)
+			got := recencyBoost(tt.lastModified, tt.now, DefaultConfig().MaxRecencyDays, DefaultConfig().RecencyBoostMax)
 			if got != tt.want {
-				t.Errorf("recencyBoost(%v, %v) = %f, want %f", tt.lastModified, tt.now, got, tt.want)
+				t.Errorf("recencyBoost(%v, %v, %g, %g) = %f, want %f", tt.lastModified, tt.now, DefaultConfig().MaxRecencyDays, DefaultConfig().RecencyBoostMax, got, tt.want)
 			}
 		})
 	}
@@ -587,5 +587,128 @@ func TestEstimateTokens(t *testing.T) {
 		if got := estimateTokens(c.in); got != c.want {
 			t.Errorf("estimateTokens(%q)=%d, want %d", c.in, got, c.want)
 		}
+	}
+}
+
+
+func TestChunkBoost(t *testing.T) {
+	cases := []struct {
+		n    int
+		want float64
+	}{
+		{0, 1.0},
+		{1, 1.0},
+		{2, 1.02},
+		{3, 1.04},
+		{10, 1.04},
+	}
+	for _, c := range cases {
+		if got := chunkBoost(c.n, DefaultConfig().ChunkBoost2, DefaultConfig().ChunkBoost3Plus); got != c.want {
+			t.Errorf("chunkBoost(%d, %g, %g) = %f, want %f", c.n, DefaultConfig().ChunkBoost2, DefaultConfig().ChunkBoost3Plus, got, c.want)
+		}
+	}
+}
+
+func TestSearch_LLMFields(t *testing.T) {
+	ctx := context.Background()
+	database := setupTestDB(t)
+	ix := index.NewIndexer(database)
+	embedFn := embed.NewMock()
+
+	chunk1Text := "go concurrency patterns with goroutines and channels provide a powerful way to structure concurrent programs"
+	chunk2Text := "channels in go are typed conduits that let you communicate between goroutines without shared memory"
+
+	doc := index.Document{
+		Path:        "/concurrency.md",
+		Hash:        "h1",
+		Title:       "Go Concurrency Guide",
+		Lang:        "en",
+		Source:      "test",
+		StemmedText: "go concurrenc pattern goroutin channel structur program",
+		Chunks: []index.Chunk{
+			{Index: 0, Text: chunk1Text, Embedding: mustEmbed(embedFn, chunk1Text)},
+			{Index: 1, Text: chunk2Text, Embedding: mustEmbed(embedFn, chunk2Text)},
+		},
+	}
+	if err := ix.Index(ctx, doc); err != nil {
+		t.Fatalf("index doc: %v", err)
+	}
+
+	engine := NewEngine(database, embedFn)
+	results, err := engine.Search(ctx, "goroutines", "", 5, Filter{})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("expected at least one result")
+	}
+	r := results[0]
+
+	if r.Context == "" {
+		t.Error("expected Context to be populated")
+	}
+	if !strings.Contains(r.Context, "goroutine") {
+		t.Errorf("expected context to contain matched term, got: %q", r.Context)
+	}
+	if r.ContextTokens == 0 {
+		t.Error("expected ContextTokens > 0 when context is non-empty")
+	}
+	if r.ContextTokens != (len(r.Context)+3)/4 {
+		t.Errorf("context token estimate heuristic drifted: got %d for context len %d", r.ContextTokens, len(r.Context))
+	}
+
+	if len(r.MatchReasons) == 0 {
+		t.Error("expected MatchReasons to be populated")
+	}
+	foundFTS := false
+	foundSemantic := false
+	for _, reason := range r.MatchReasons {
+		if reason == "fts_content" {
+			foundFTS = true
+		}
+		if reason == "semantic" {
+			foundSemantic = true
+		}
+	}
+	if !foundFTS {
+		t.Errorf("expected MatchReasons to contain 'fts_content', got %v", r.MatchReasons)
+	}
+	if !foundSemantic {
+		t.Errorf("expected MatchReasons to contain 'semantic', got %v", r.MatchReasons)
+	}
+
+	if r.ChunkMatches < 1 {
+		t.Errorf("expected ChunkMatches >= 1, got %d", r.ChunkMatches)
+	}
+}
+
+func TestSearch_FTSSanitization(t *testing.T) {
+	ctx := context.Background()
+	database := setupTestDB(t)
+	ix := index.NewIndexer(database)
+	embedFn := embed.NewMock()
+
+	doc := index.Document{
+		Path:        "/test.md",
+		Hash:        "h1",
+		Title:       "Test Document",
+		Lang:        "en",
+		Source:      "test",
+		StemmedText: "test document content",
+		Embedding:   mustEmbed(embedFn, "test document content"),
+	}
+	if err := ix.Index(ctx, doc); err != nil {
+		t.Fatalf("index doc: %v", err)
+	}
+
+	engine := NewEngine(database, embedFn)
+
+	// Query with embedded double quotes should not cause a syntax error.
+	results, err := engine.Search(ctx, `"test" document`, "", 5, Filter{})
+	if err != nil {
+		t.Fatalf("search with quotes: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("expected at least one result for quoted query")
 	}
 }

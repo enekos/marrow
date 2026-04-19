@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"marrow/internal/config"
@@ -202,7 +204,7 @@ func doServe(logger *slog.Logger, cfg *config.Config) {
 			lang = *defaultLang
 		}
 		if lang == "" {
-			lang = "en"
+			lang = config.DefaultLang
 		}
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -226,7 +228,10 @@ func doServe(logger *slog.Logger, cfg *config.Config) {
 	srv.DefaultLang = *defaultLang
 	srv.WebhookSource = *source
 
-	if err := srv.ListenAndServe(*addr); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	if err := srv.Run(ctx, *addr); err != nil {
 		logger.Error("server error", "err", err)
 		os.Exit(1)
 	}

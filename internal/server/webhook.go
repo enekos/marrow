@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"marrow/internal/service"
 )
 
 func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
@@ -206,9 +205,4 @@ func extractNumber(obj map[string]any) int {
 	return int(n)
 }
 
-// WebhookSyncer is the interface used by the legacy webhook handler.
-type WebhookSyncer interface {
-	SyncGit(ctx context.Context, source, defaultLang, repoURL, token, localPath string) error
-}
 
-var _ WebhookSyncer = (*service.Syncer)(nil)

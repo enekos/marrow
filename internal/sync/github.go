@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"marrow/internal/config"
 	"marrow/internal/db"
 	"marrow/internal/embed"
 	"marrow/internal/githubapi"
@@ -45,7 +46,7 @@ func (s *GitHubSyncer) Sync(ctx context.Context) error {
 	indexed := make(map[string]struct{})
 	lang := s.DefaultLang
 	if lang == "" {
-		lang = "en"
+		lang = config.DefaultLang
 	}
 
 	for _, issue := range issues {
@@ -118,7 +119,7 @@ func (s *GitHubSyncer) indexItem(ctx context.Context, path, title, body string, 
 	hash := githubapi.ContentHash(title, body, comments)
 	lang := s.DefaultLang
 	if lang == "" {
-		lang = "en"
+		lang = config.DefaultLang
 	}
 	stemmed := stemmer.StemText(content, lang)
 	chunks, err := embedChunks(ctx, s.EmbedFn, content)

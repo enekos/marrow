@@ -9,6 +9,10 @@ import (
 	"github.com/spf13/viper"
 )
 
+// DefaultLang is the fallback language code used when no language is detected
+// or configured. It is referenced across search, sync, and indexing packages.
+const DefaultLang = "en"
+
 // Config is the top-level resolved configuration for Marrow.
 type Config struct {
 	Server      ServerConfig    `mapstructure:"server"`
@@ -140,12 +144,12 @@ func setDefaults(v *viper.Viper) {
 
 	// Search
 	v.SetDefault("search.detect_lang", true)
-	v.SetDefault("search.default_lang", "en")
+	v.SetDefault("search.default_lang", DefaultLang)
 
 	// Sync
 	v.SetDefault("sync.dir", ".")
 	v.SetDefault("sync.source", "local")
-	v.SetDefault("sync.default_lang", "en")
+	v.SetDefault("sync.default_lang", DefaultLang)
 
 	// GitHub App
 	v.SetDefault("github_app.app_id", int64(0))

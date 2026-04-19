@@ -1,14 +1,18 @@
 package server
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"marrow/internal/db"
 	"marrow/internal/embed"
 	"marrow/internal/githubapi"
 	"marrow/internal/service"
 )
+
+const shutdownTimeout = 10 * time.Second
 
 // Server holds HTTP handlers and their dependencies.
 type Server struct {
@@ -26,6 +30,7 @@ type Server struct {
 	GHWebhookSecret string
 	DefaultLang     string
 	WebhookSource   string
+	httpServer      *http.Server
 }
 
 // New creates a new Server with the given dependencies.
@@ -51,10 +56,30 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /webhook", s.handleWebhook)
 }
 
-// ListenAndServe starts the HTTP server on addr.
-func (s *Server) ListenAndServe(addr string) error {
+// Run starts the HTTP server and blocks until the provided context is cancelled,
+// then performs a graceful shutdown.
+func (s *Server) Run(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
 	s.RegisterRoutes(mux)
-	s.Logger.Info("server listening", "addr", addr)
-	return http.ListenAndServe(addr, mux)
+
+	s.httpServer = &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		s.Logger.Info("server listening", "addr", addr)
+		errCh <- s.httpServer.ListenAndServe()
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		s.Logger.Info("server shutting down gracefully")
+		return s.httpServer.Shutdown(shutdownCtx)
+	case err := <-errCh:
+		return err
+	}
 }

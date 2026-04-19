@@ -1,0 +1,29 @@
+{
+  "queries": [
+    {
+      "query": "go modules",
+      "relevant": [
+        "/go/02-modules.md"
+      ]
+    },
+    {
+      "query": "rust ownership",
+      "relevant": [
+        "/rust/01-ownership.md"
+      ]
+    },
+    {
+      "query": "python asyncio",
+      "relevant": [
+        "/python/01-asyncio.md"
+      ]
+    },
+    {
+      "query": "programación",
+      "lang": "es",
+      "relevant": [
+        "/es/programacion-go.md"
+      ]
+    }
+  ]
+}
