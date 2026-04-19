@@ -5,7 +5,8 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=1 go build -tags sqlite_fts5 -ldflags="-w -s" -o marrow .
+ARG BUILD_TAGS=sqlite_fts5
+RUN CGO_ENABLED=1 go build -tags "${BUILD_TAGS}" -ldflags="-w -s" -o marrow .
 
 # Runtime stage
 FROM alpine:latest

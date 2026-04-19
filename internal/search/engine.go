@@ -94,7 +94,7 @@ type Result struct {
 
 // Filter constrains search results.
 type Filter struct {
-	Source  string
+	Sources []string
 	DocType string
 	Lang    string
 }
@@ -634,9 +634,13 @@ func estimateTokens(s string) int {
 func buildFilterSQL(f Filter) (string, []any) {
 	var parts []string
 	var args []any
-	if f.Source != "" {
-		parts = append(parts, "source = ?")
-		args = append(args, f.Source)
+	if len(f.Sources) > 0 {
+		placeholders := make([]string, len(f.Sources))
+		for i := range f.Sources {
+			placeholders[i] = "?"
+			args = append(args, f.Sources[i])
+		}
+		parts = append(parts, fmt.Sprintf("source IN (%s)", strings.Join(placeholders, ",")))
 	}
 	if f.DocType != "" {
 		parts = append(parts, "doc_type = ?")

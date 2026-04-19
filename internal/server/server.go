@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"marrow/internal/config"
 	"marrow/internal/db"
 	"marrow/internal/embed"
 	"marrow/internal/githubapi"
@@ -13,6 +14,22 @@ import (
 )
 
 const shutdownTimeout = 10 * time.Second
+
+// contextKey is a private type for context values.
+type contextKey string
+
+const siteContextKey contextKey = "marrow.site"
+
+// WithSite returns a context with the site config attached.
+func WithSite(ctx context.Context, site *config.SiteConfig) context.Context {
+	return context.WithValue(ctx, siteContextKey, site)
+}
+
+// SiteFromContext retrieves the site config from the context.
+func SiteFromContext(ctx context.Context) *config.SiteConfig {
+	site, _ := ctx.Value(siteContextKey).(*config.SiteConfig)
+	return site
+}
 
 // Server holds HTTP handlers and their dependencies.
 type Server struct {
@@ -30,6 +47,8 @@ type Server struct {
 	GHWebhookSecret string
 	DefaultLang     string
 	WebhookSource   string
+	Config          *config.Config
+	WrapHandler     func(http.Handler) http.Handler
 	httpServer      *http.Server
 }
 
@@ -62,9 +81,13 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
 	s.RegisterRoutes(mux)
 
+	handler := http.Handler(mux)
+	if s.WrapHandler != nil {
+		handler = s.WrapHandler(handler)
+	}
 	s.httpServer = &http.Server{
 		Addr:    addr,
-		Handler: mux,
+		Handler: handler,
 	}
 
 	errCh := make(chan error, 1)

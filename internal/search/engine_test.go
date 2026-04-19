@@ -354,8 +354,8 @@ func TestBuildFilterSQL(t *testing.T) {
 		},
 		{
 			name:     "source only",
-			filter:   Filter{Source: "test"},
-			wantSQL:  "source = ?",
+			filter:   Filter{Sources: []string{"test"}},
+			wantSQL:  "source IN (?)",
 			wantArgs: []any{"test"},
 		},
 		{
@@ -372,15 +372,27 @@ func TestBuildFilterSQL(t *testing.T) {
 		},
 		{
 			name:     "source and doc type",
-			filter:   Filter{Source: "test", DocType: "issue"},
-			wantSQL:  "source = ? AND doc_type = ?",
+			filter:   Filter{Sources: []string{"test"}, DocType: "issue"},
+			wantSQL:  "source IN (?) AND doc_type = ?",
 			wantArgs: []any{"test", "issue"},
 		},
 		{
 			name:     "all three",
-			filter:   Filter{Source: "test", DocType: "issue", Lang: "es"},
-			wantSQL:  "source = ? AND doc_type = ? AND lang = ?",
+			filter:   Filter{Sources: []string{"test"}, DocType: "issue", Lang: "es"},
+			wantSQL:  "source IN (?) AND doc_type = ? AND lang = ?",
 			wantArgs: []any{"test", "issue", "es"},
+		},
+		{
+			name:     "multiple sources",
+			filter:   Filter{Sources: []string{"blog", "docs"}},
+			wantSQL:  "source IN (?,?)",
+			wantArgs: []any{"blog", "docs"},
+		},
+		{
+			name:     "multiple sources with doc_type",
+			filter:   Filter{Sources: []string{"a", "b", "c"}, DocType: "md"},
+			wantSQL:  "source IN (?,?,?) AND doc_type = ?",
+			wantArgs: []any{"a", "b", "c", "md"},
 		},
 	}
 

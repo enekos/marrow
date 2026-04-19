@@ -22,6 +22,7 @@ type Config struct {
 	GitHubApp   GitHubAppConfig `mapstructure:"github_app"`
 	Embedding   EmbeddingConfig `mapstructure:"embedding"`
 	Sources     []SourceConfig  `mapstructure:"sources"`
+	Sites       []SiteConfig    `mapstructure:"sites"`
 }
 
 type EmbeddingConfig struct {
@@ -41,9 +42,20 @@ type SourceConfig struct {
 	DefaultLang string `mapstructure:"default_lang"`
 }
 
+type SiteConfig struct {
+	Name        string   `mapstructure:"name"`
+	Hosts       []string `mapstructure:"hosts"`
+	Sources     []string `mapstructure:"sources"`
+	CORSOrigins []string `mapstructure:"cors_origins"`
+	APIKey      string   `mapstructure:"api_key"`
+	RateLimitRPS float64 `mapstructure:"rate_limit_rps"`
+}
+
 type ServerConfig struct {
-	Addr string `mapstructure:"addr"`
-	DB   string `mapstructure:"db"`
+	Addr         string `mapstructure:"addr"`
+	DB           string `mapstructure:"db"`
+	LogFormat    string `mapstructure:"log_format"`
+	SyncInterval string `mapstructure:"sync_interval"`
 }
 
 type GitHubConfig struct {
@@ -134,6 +146,8 @@ func setDefaults(v *viper.Viper) {
 	// Server
 	v.SetDefault("server.addr", ":8080")
 	v.SetDefault("server.db", "marrow.db")
+	v.SetDefault("server.log_format", "text")
+	v.SetDefault("server.sync_interval", "15m")
 
 	// GitHub
 	v.SetDefault("github.repo_url", "")
@@ -165,4 +179,45 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("embedding.model", "")
 	v.SetDefault("embedding.base_url", "")
 	v.SetDefault("embedding.api_key", "")
+}
+
+// SiteByHost returns the site configuration matching the given host header.
+func (c *Config) SiteByHost(host string) *SiteConfig {
+	for i := range c.Sites {
+		for _, h := range c.Sites[i].Hosts {
+			if h == host {
+				return &c.Sites[i]
+			}
+		}
+	}
+	return nil
+}
+
+// SiteByName returns the site configuration matching the given name.
+func (c *Config) SiteByName(name string) *SiteConfig {
+	for i := range c.Sites {
+		if c.Sites[i].Name == name {
+			return &c.Sites[i]
+		}
+	}
+	return nil
+}
+
+// SourcesForSite returns the SourceConfigs referenced by a site's sources list.
+func (c *Config) SourcesForSite(site *SiteConfig) []SourceConfig {
+	var out []SourceConfig
+	for _, name := range site.Sources {
+		for _, s := range c.Sources {
+			if s.Name == name {
+				out = append(out, s)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// HasSites returns true if any sites are configured.
+func (c *Config) HasSites() bool {
+	return len(c.Sites) > 0
 }

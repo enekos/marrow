@@ -1,0 +1,19 @@
+# Reverse proxy for Marrow search instances
+# Replace these hostnames with your actual domains / subdomains
+
+search.blog.example.com {
+	reverse_proxy marrow:8080
+	header +Access-Control-Allow-Origin "https://blog.example.com"
+	header +Access-Control-Allow-Methods "GET, POST, OPTIONS"
+	header +Access-Control-Allow-Headers "Content-Type, Authorization, X-Site"
+}
+
+search.docs.example.com {
+	reverse_proxy marrow:8080
+	header +Access-Control-Allow-Origin "https://docs.example.com"
+	header +Access-Control-Allow-Methods "GET, POST, OPTIONS"
+	header +Access-Control-Allow-Headers "Content-Type, Authorization, X-Site"
+}
+
+# Caddy automatically handles TLS via Let's Encrypt.
+# Ensure ports 80 and 443 are open on your VPS.

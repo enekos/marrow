@@ -95,9 +95,52 @@ Configure your GitHub App's webhook URL to point to `https://your-host/webhook`.
 ## Build
 
 ```bash
-make build   # requires -tags sqlite_fts5
+make build     # local build (requires -tags sqlite_fts5)
+make build-vps # production build with multi-site support
 make test
 ```
+
+## VPS Deployment
+
+Marrow can run as a persistent search service on a VPS, serving multiple static sites simultaneously.
+
+### Multi-Site Build
+
+Compile with the `vps` build tag to enable per-site CORS, API keys, rate limiting, and scheduled background sync:
+
+```bash
+go build -tags "sqlite_fts5 vps" -o marrow .
+```
+
+Without the `vps` tag, the binary behaves exactly as before — ideal for local development.
+
+### Docker Compose + Caddy
+
+See [`docs/vps-deployment.md`](docs/vps-deployment.md) for a complete walkthrough. The short version:
+
+```bash
+cp .env.example .env
+# edit config.toml and Caddyfile with your domains
+docker compose up -d
+```
+
+Caddy provisions TLS automatically, and Marrow handles per-site search isolation via the `Host` header.
+
+### Multi-Site Configuration
+
+Define sites in `config.toml`:
+
+```toml
+[[sites]]
+name = "blog"
+hosts = ["search.blog.example.com"]
+cors_origins = ["https://blog.example.com"]
+api_key = "sk_blog_xxx"
+sources = ["blog-docs"]
+rate_limit_rps = 20
+```
+
+See [`docs/multi-site.md`](docs/multi-site.md) for full details.
 
 ## Architecture
 

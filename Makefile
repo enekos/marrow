@@ -1,7 +1,10 @@
-.PHONY: build test clean run-sync run-serve landing
+.PHONY: build build-vps test clean run-sync run-serve landing
 
 build:
 	go build -tags sqlite_fts5 -o marrow .
+
+build-vps:
+	go build -tags "sqlite_fts5 vps" -o marrow .
 
 test:
 	go test -tags sqlite_fts5 ./...

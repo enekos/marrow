@@ -1,0 +1,22 @@
+[Unit]
+Description=Marrow search engine
+After=network.target
+
+[Service]
+Type=simple
+User=marrow
+Group=marrow
+WorkingDirectory=/var/lib/marrow
+EnvironmentFile=/etc/marrow/env
+ExecStart=/usr/local/bin/marrow serve
+Restart=always
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/marrow
+
+[Install]
+WantedBy=multi-user.target

@@ -22,7 +22,6 @@ import (
 )
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: marrow <sync|serve|status|reindex|maintain> [options]")
 		os.Exit(1)
@@ -34,6 +33,8 @@ func main() {
 	if cfg == nil {
 		cfg = &config.Config{}
 	}
+
+	logger := newLogger(cfg.Server.LogFormat)
 
 	switch cmd {
 	case "sync":
@@ -221,6 +222,7 @@ func doServe(logger *slog.Logger, cfg *config.Config) {
 	}
 
 	srv := server.New(logger, searcher, syncer, database, embedFn, indexHTML)
+	srv.Config = cfg
 	srv.GHClient = ghClient
 	srv.GHRepoOwner = owner
 	srv.GHRepoName = repoName
@@ -230,6 +232,8 @@ func doServe(logger *slog.Logger, cfg *config.Config) {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	setupVPSServer(ctx, srv, cfg, syncer)
 
 	if err := srv.Run(ctx, *addr); err != nil {
 		logger.Error("server error", "err", err)
@@ -348,6 +352,16 @@ func doMaintain(logger *slog.Logger, cfg *config.Config) {
 		os.Exit(1)
 	}
 	logger.Info("maintenance complete")
+}
+
+func newLogger(format string) *slog.Logger {
+	opts := &slog.HandlerOptions{Level: slog.LevelInfo}
+	switch format {
+	case "json":
+		return slog.New(slog.NewJSONHandler(os.Stderr, opts))
+	default:
+		return slog.New(slog.NewTextHandler(os.Stderr, opts))
+	}
 }
 
 func openDBAndEmbed(logger *slog.Logger, dbPath string, cfg *config.Config) (*db.DB, embed.Func) {

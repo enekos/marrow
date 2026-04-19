@@ -22,7 +22,8 @@ func Open(path string) (*DB, error) {
 	// Auto-register sqlite-vec for all future connections in this process.
 	vec.Auto()
 
-	sqlDB, err := sql.Open("sqlite3", path+"?_pragma=foreign_keys(1)")
+	dsn := path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	sqlDB, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
@@ -34,6 +35,9 @@ func Open(path string) (*DB, error) {
 	if _, err := sqlDB.Exec(`PRAGMA foreign_keys = ON`); err != nil {
 		return nil, fmt.Errorf("enable foreign keys: %w", err)
 	}
+	// SQLite performs best with a single writer; cap connections.
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 
 	db := &DB{DB: sqlDB}
 	if err := db.migrate(); err != nil {
