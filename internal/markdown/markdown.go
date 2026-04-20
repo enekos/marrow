@@ -129,5 +129,5 @@ func ensureSpace(sb *strings.Builder) {
 }
 
 func cleanWhitespace(s string) string {
-	return strings.TrimSpace(strings.Join(strings.Fields(s), " "))
+	return strings.Join(strings.Fields(s), " ")
 }

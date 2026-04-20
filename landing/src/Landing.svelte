@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount } from 'svelte';
   import { Database, Search, Zap, GitBranch, Copy, Check, ArrowRight, ChevronDown, Settings, TerminalSquare, RefreshCw, Terminal, Code } from 'lucide-svelte';
 
   // Scramble utils
@@ -70,10 +70,10 @@
     ['features', 'docs', 'search'].forEach(observeSection);
   });
 
-  function useScramble(finalText: string, active: boolean) {
+  function useScramble(finalText: string, activeFn: () => boolean) {
     let text = $state('');
     $effect(() => {
-      if (!active) { text = finalText; return; }
+      if (!activeFn()) { text = finalText; return; }
       let t = 0;
       const interval = setInterval(() => {
         text = scrambleTo(finalText, t);
@@ -85,7 +85,7 @@
       }, 35);
       return () => clearInterval(interval);
     });
-    return text;
+    return () => text;
   }
 
   const featuresText = useScramble('Built for speed & privacy', () => !!visibleSections['features']);
@@ -108,7 +108,7 @@
   });
 
   // Background glyphs
-  const glyphs = Array.from({ length: 40 }, (_, i) => ({
+  const glyphs = Array.from({ length: 40 }, () => ({
     char: chars[Math.floor(Math.random() * chars.length)],
     left: Math.random() * 100,
     top: Math.random() * 100,
@@ -116,15 +116,6 @@
     duration: 4 + Math.random() * 6,
     size: 10 + Math.floor(Math.random() * 18),
   }));
-  onMount(() => {
-    const interval = setInterval(() => {
-      glyphs.forEach((g) => {
-        if (Math.random() > 0.7) g.char = chars[Math.floor(Math.random() * chars.length)];
-      });
-      glyphs.sort(() => Math.random() - 0.5);
-    }, 800);
-    return () => clearInterval(interval);
-  });
 
   // Copy install command
   let copied = $state(false);
@@ -303,7 +294,7 @@
   <section id="features" class="relative z-10 py-20 border-y border-white/5 bg-[#0f0e14]">
     <div class="max-w-6xl mx-auto px-6">
       <div class="text-center mb-16">
-        <h2 class="text-3xl md:text-4xl font-bold text-white mb-4 min-h-[1.2em]">{featuresText}</h2>
+        <h2 class="text-3xl md:text-4xl font-bold text-white mb-4 min-h-[1.2em]">{featuresText()}</h2>
         <p class="text-[#a0a0b0] max-w-2xl mx-auto">Everything runs locally in a single SQLite file. No external APIs required unless you explicitly enable them.</p>
       </div>
       <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -335,7 +326,7 @@
   <section id="docs" class="relative z-10 py-24">
     <div class="max-w-4xl mx-auto px-6">
       <div class="text-center mb-12">
-        <h2 class="text-3xl md:text-4xl font-bold text-white mb-3 min-h-[1.2em]">{docsText}</h2>
+        <h2 class="text-3xl md:text-4xl font-bold text-white mb-3 min-h-[1.2em]">{docsText()}</h2>
         <p class="text-[#a0a0b0]">How Marrow works, how to configure it, and how to use every feature.</p>
       </div>
 
@@ -552,7 +543,7 @@ local_path = "./repo/wiki"</pre>
   <section id="search" class="relative z-10 py-24 border-y border-white/5 bg-[#0f0e14]">
     <div class="max-w-3xl mx-auto px-6">
       <div class="text-center mb-10">
-        <h2 class="text-3xl md:text-4xl font-bold text-white mb-3 min-h-[1.2em]">{searchText}</h2>
+        <h2 class="text-3xl md:text-4xl font-bold text-white mb-3 min-h-[1.2em]">{searchText()}</h2>
         <p class="text-[#a0a0b0]">Try a live query against the currently running Marrow instance.</p>
       </div>
 

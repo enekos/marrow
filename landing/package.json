@@ -22,7 +22,6 @@
     "vite-plugin-singlefile": "^2.2.0"
   },
   "dependencies": {
-    "lucide-svelte": "^1.0.1",
-    "motion": "^12.38.0"
+    "lucide-svelte": "^1.0.1"
   }
 }

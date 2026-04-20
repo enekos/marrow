@@ -107,24 +107,6 @@ func (w *SnowballWord) resetR1R2() {
 	}
 }
 
-// Return a slice of w.RS, allowing the start
-// and stop to be out of bounds.
-//
-func (w *SnowballWord) slice(start, stop int) []rune {
-	startMin := 0
-	if start < startMin {
-		start = startMin
-	}
-	max := len(w.RS) - 1
-	if start > max {
-		start = max
-	}
-	if stop > max {
-		stop = max
-	}
-	return w.RS[start:stop]
-}
-
 // Returns true if `x` runes would fit into R1.
 //
 func (w *SnowballWord) FitsInR1(x int) bool {

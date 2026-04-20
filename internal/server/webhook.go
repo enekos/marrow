@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -66,7 +67,7 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Restore body for json decoding
-		r.Body = io.NopCloser(strings.NewReader(string(payload)))
+		r.Body = io.NopCloser(bytes.NewReader(payload))
 	}
 
 	eventType := r.Header.Get("X-GitHub-Event")

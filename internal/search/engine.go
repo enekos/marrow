@@ -365,7 +365,7 @@ func (e *Engine) queryVectors(ctx context.Context, qblob []byte, limit int) (*ve
 		if len(res.docChunks[docID]) < e.cfg.MaxChunksPerDoc {
 			res.docChunks[docID] = append(res.docChunks[docID], text)
 		}
-		if rank > limit*e.cfg.FetchMultiplierFTS {
+		if rank > limit*e.cfg.FetchMultiplierVec {
 			break
 		}
 	}

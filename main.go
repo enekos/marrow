@@ -28,8 +28,15 @@ func main() {
 	}
 
 	cmd := os.Args[1]
-	workDir, _ := os.Getwd()
-	cfg, _ := config.Load(workDir)
+	workDir, err := os.Getwd()
+	if err != nil {
+		workDir = "."
+	}
+	cfg, err := config.Load(workDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)
+		cfg = &config.Config{}
+	}
 	if cfg == nil {
 		cfg = &config.Config{}
 	}

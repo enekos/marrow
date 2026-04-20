@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -110,7 +109,7 @@ func parseCutoffs(s string) ([]int, error) {
 }
 
 func loadQrels(path string) ([]eval.QRel, error) {
-	data, err := os.ReadFile(filepath.Clean(path))
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

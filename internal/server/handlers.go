@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"marrow/internal/db"
 )
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -18,7 +20,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		dbStatus = "error"
 	}
 
-	stats, _ := s.StatsRepo.Get(r.Context())
+	stats, err := s.StatsRepo.Get(r.Context())
+	if err != nil {
+		stats = &db.Stats{}
+	}
 
 	resp := map[string]any{
 		"status":        "ok",

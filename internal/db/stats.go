@@ -25,7 +25,7 @@ func (r *StatsRepo) Get(ctx context.Context) (*Stats, error) {
 
 	bySource := make(map[string]int64)
 	var sources []string
-	rows, err := r.db.QueryContext(ctx, `SELECT source, COUNT(*) FROM documents GROUP BY source`)
+	rows, err := r.db.QueryContext(ctx, `SELECT source, COUNT(*) FROM documents GROUP BY source ORDER BY source`)
 	if err != nil {
 		return nil, err
 	}
@@ -62,11 +62,15 @@ func (r *StatsRepo) Get(ctx context.Context) (*Stats, error) {
 	}
 
 	var dbSize int64
-	_ = r.db.QueryRowContext(ctx, `SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()`).Scan(&dbSize)
+	if err := r.db.QueryRowContext(ctx, `SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()`).Scan(&dbSize); err != nil {
+		return nil, err
+	}
 
 	var lastSync *time.Time
 	var t sql.NullTime
-	_ = r.db.QueryRowContext(ctx, `SELECT last_sync_at FROM sync_state ORDER BY last_sync_at DESC LIMIT 1`).Scan(&t)
+	if err := r.db.QueryRowContext(ctx, `SELECT last_sync_at FROM sync_state ORDER BY last_sync_at DESC LIMIT 1`).Scan(&t); err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
 	if t.Valid {
 		lastSync = &t.Time
 	}

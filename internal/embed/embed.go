@@ -42,7 +42,7 @@ func NewMock() Func {
 		}
 		h := sha256.Sum256([]byte(text))
 		seed := binary.BigEndian.Uint64(h[:8])
-		src := rand.New(rand.NewPCG(seed, seed))
+		src := rand.New(rand.NewPCG(seed, seed+1))
 
 		vec := make([]float32, EmbeddingDim)
 		var sum float64
