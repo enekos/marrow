@@ -39,31 +39,51 @@ func splitFrontMatter(data []byte) (fm, body []byte) {
 	return fm, body
 }
 
-// extractCategories pulls category slugs from Hugo front matter. Both
-// `categories` (list of strings) and `categories_meta` (list of maps with
-// `slug`/`name`) shapes are supported because gizapedia preprocesses to
-// both.
-func extractCategories(meta map[string]any) []string {
-	if meta == nil {
+// extractTaxonomyTerms pulls discrete taxonomy terms out of Hugo front matter
+// for one or more configured field names. Each field value may be either:
+//   - a list of strings (e.g. Hugo's `categories: [politika, ekonomia]` or
+//     preprocessed `tag_pairs: ["es|padre", "kat|izen"]`)
+//   - a list of maps with `slug`, `value`, or `name` keys (e.g.
+//     `categories_meta: [{slug: politika, name: Politika}]` or the raw
+//     `tags: [{name: es, value: padre}]` shape — in which case the term is
+//     rendered as "name|value" so it matches the preprocessed `tag_pairs`).
+//
+// Missing fields are silently ignored, making the same signal reusable
+// across content types with different front-matter shapes.
+func extractTaxonomyTerms(meta map[string]any, fields []string) []string {
+	if meta == nil || len(fields) == 0 {
 		return nil
 	}
 	set := map[string]struct{}{}
-	if v, ok := meta["categories"]; ok {
-		if lst, ok := v.([]any); ok {
-			for _, item := range lst {
-				if s, ok := item.(string); ok && s != "" {
-					set[s] = struct{}{}
-				}
-			}
+	for _, field := range fields {
+		v, ok := meta[field]
+		if !ok {
+			continue
 		}
-	}
-	if v, ok := meta["categories_meta"]; ok {
-		if lst, ok := v.([]any); ok {
-			for _, item := range lst {
-				if m, ok := item.(map[string]any); ok {
-					if s, ok := m["slug"].(string); ok && s != "" {
-						set[s] = struct{}{}
-					}
+		lst, ok := v.([]any)
+		if !ok {
+			continue
+		}
+		for _, item := range lst {
+			switch it := item.(type) {
+			case string:
+				if it != "" {
+					set[it] = struct{}{}
+				}
+			case map[string]any:
+				if s, ok := it["slug"].(string); ok && s != "" {
+					set[s] = struct{}{}
+					continue
+				}
+				name, _ := it["name"].(string)
+				value, _ := it["value"].(string)
+				switch {
+				case name != "" && value != "":
+					set[name+"|"+value] = struct{}{}
+				case value != "":
+					set[value] = struct{}{}
+				case name != "":
+					set[name] = struct{}{}
 				}
 			}
 		}
@@ -75,9 +95,9 @@ func extractCategories(meta map[string]any) []string {
 	return out
 }
 
-// categoryOverlap returns the size of the intersection of two category slug
+// taxonomyOverlap returns the size of the intersection of two taxonomy-term
 // lists normalised by the smaller set's size.
-func categoryOverlap(a, b []string) float64 {
+func taxonomyOverlap(a, b []string) float64 {
 	if len(a) == 0 || len(b) == 0 {
 		return 0
 	}

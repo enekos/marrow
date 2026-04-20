@@ -64,6 +64,18 @@ type Config struct {
 	// IgnoreSemantic forces WSem to 0 (for mock-embedding runs). Auto-set
 	// by Builder.Load when all doc vectors look like mock vectors.
 	IgnoreSemantic bool
+
+	// TaxonomyFields names the front-matter fields to read for the shared-
+	// taxonomy signal. Each field is expected to hold a list of strings or
+	// of maps ({slug|name|value}). Default: categories + categories_meta
+	// (standard Hugo shape). Pass e.g. ["tag_pairs"] for dictionary-style
+	// "name|value" pair terms.
+	TaxonomyFields []string
+
+	// TaxonomyReasonLabel is the prefix used when emitting "why this was
+	// picked" reasons for the taxonomy signal (e.g. "category" → "category:politika"
+	// or "tag" → "tag:es|padre"). Default: "category".
+	TaxonomyReasonLabel string
 }
 
 // DefaultConfig returns the tuned defaults.
@@ -79,6 +91,8 @@ func DefaultConfig() Config {
 		CandidatePoolMultiplier: 6,
 		TrivialTitleThreshold:   0.35,
 		Workers:                 8,
+		TaxonomyFields:          []string{"categories", "categories_meta"},
+		TaxonomyReasonLabel:     "category",
 	}
 }
 
@@ -98,7 +112,7 @@ type docRecord struct {
 	title      string
 	lang       string
 	slug       string
-	categories []string
+	taxonomy   []string
 
 	// doc-level embedding (mean-pooled chunk vectors, L2-normalised)
 	vec []float32
@@ -153,6 +167,12 @@ func NewBuilder(cfg Config, logger *slog.Logger) *Builder {
 	}
 	if cfg.Workers != 0 {
 		c.Workers = cfg.Workers
+	}
+	if len(cfg.TaxonomyFields) > 0 {
+		c.TaxonomyFields = cfg.TaxonomyFields
+	}
+	if cfg.TaxonomyReasonLabel != "" {
+		c.TaxonomyReasonLabel = cfg.TaxonomyReasonLabel
 	}
 	c.IgnoreSemantic = cfg.IgnoreSemantic
 	if logger == nil {
@@ -421,7 +441,7 @@ func (b *Builder) loadFrontmatterAndLinks(contentDir string) error {
 					doc.slug = s
 					b.bySlug[s] = doc
 				}
-				doc.categories = extractCategories(meta)
+				doc.taxonomy = extractTaxonomyTerms(meta, b.cfg.TaxonomyFields)
 			}
 		}
 		if doc.slug == "" {

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"marrow/internal/db"
 	"marrow/internal/related"
@@ -35,6 +36,8 @@ func main() {
 	mmrLambda := fs.Float64("mmr-lambda", 0.72, "MMR relevance/diversity tradeoff (1=pure relevance, 0=pure diversity)")
 	topK := fs.Int("salient-top-k", 24, "TF-IDF salient terms retained per doc")
 	noSem := fs.Bool("no-semantic", false, "Disable semantic signal (force lex+link+cat only)")
+	taxFields := fs.String("taxonomy-fields", "categories,categories_meta", "Comma-separated front-matter fields to read for the shared-taxonomy signal. Values may be lists of strings or of maps ({slug|name|value}). Defaults match Hugo's `categories` shape; pass e.g. `tag_pairs` for dictionary-style name|value pairs.")
+	taxLabel := fs.String("taxonomy-reason", "category", "Prefix used for taxonomy reasons in the output (e.g. `category` → `category:politika`, `tag` → `tag:es|padre`).")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "parse flags: %v\n", err)
@@ -50,16 +53,25 @@ func main() {
 	}
 	defer database.Close()
 
+	var fields []string
+	for _, f := range strings.Split(*taxFields, ",") {
+		if f = strings.TrimSpace(f); f != "" {
+			fields = append(fields, f)
+		}
+	}
+
 	cfg := related.Config{
-		Limit:          *limit,
-		WSem:           *wSem,
-		WLex:           *wLex,
-		WLink:          *wLink,
-		WCat:           *wCat,
-		MMRLambda:      *mmrLambda,
-		TopKSalient:    *topK,
-		Workers:        *workers,
-		IgnoreSemantic: *noSem,
+		Limit:               *limit,
+		WSem:                *wSem,
+		WLex:                *wLex,
+		WLink:               *wLink,
+		WCat:                *wCat,
+		MMRLambda:           *mmrLambda,
+		TopKSalient:         *topK,
+		Workers:             *workers,
+		IgnoreSemantic:      *noSem,
+		TaxonomyFields:      fields,
+		TaxonomyReasonLabel: *taxLabel,
 	}
 
 	builder := related.NewBuilder(cfg, logger)

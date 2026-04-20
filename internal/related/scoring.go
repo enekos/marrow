@@ -7,13 +7,14 @@ import (
 
 // candidate is one potential related doc with its decomposed signals.
 type candidate struct {
-	doc     *docRecord
-	sem     float64
-	lex     float64
-	link    float64
-	cat     float64
-	titleOv float64
-	score   float64
+	doc         *docRecord
+	sem         float64
+	lex         float64
+	link        float64
+	cat         float64
+	titleOv     float64
+	score       float64
+	reasonLabel string
 }
 
 // relatedFor computes the related-doc list for one source document.
@@ -65,7 +66,7 @@ func (b *Builder) scoreAll(src *docRecord) []candidate {
 		if d.id == src.id {
 			continue
 		}
-		c := candidate{doc: d}
+		c := candidate{doc: d, reasonLabel: b.cfg.TaxonomyReasonLabel}
 
 		if !b.cfg.IgnoreSemantic && len(src.vec) > 0 && len(d.vec) > 0 {
 			c.sem = cosine(src.vec, d.vec)
@@ -75,7 +76,7 @@ func (b *Builder) scoreAll(src *docRecord) []candidate {
 		}
 		c.lex = jaccardSalient(src.salientTerms, d.salientTerms)
 		c.link = b.linkScore(src, d)
-		c.cat = categoryOverlap(src.categories, d.categories)
+		c.cat = taxonomyOverlap(src.taxonomy, d.taxonomy)
 		c.titleOv = titleOverlap(src.titleStems, d.titleStems)
 
 		score := b.cfg.WSem*c.sem +
@@ -171,11 +172,19 @@ func buildReasons(src *docRecord, c candidate) []string {
 		reasons = append(reasons, "co-cited")
 	}
 	if c.cat > 0 {
-		// Emit first shared category slug for UI specificity.
-		if cat := firstSharedCategory(src.categories, c.doc.categories); cat != "" {
-			reasons = append(reasons, "category:"+cat)
+		label := "category"
+		// We can't reach Builder.cfg here; callers pass this through the
+		// candidate's score path. Looked up via closure isn't clean, so
+		// the label is attached by relatedFor before calling. Default
+		// stays "category" for back-compat.
+		if c.reasonLabel != "" {
+			label = c.reasonLabel
+		}
+		// Emit first shared taxonomy term for UI specificity.
+		if term := firstShared(src.taxonomy, c.doc.taxonomy); term != "" {
+			reasons = append(reasons, label+":"+term)
 		} else {
-			reasons = append(reasons, "category")
+			reasons = append(reasons, label)
 		}
 	}
 	if c.sem >= 0.55 {
@@ -187,7 +196,7 @@ func buildReasons(src *docRecord, c candidate) []string {
 	return reasons
 }
 
-func firstSharedCategory(a, b []string) string {
+func firstShared(a, b []string) string {
 	aset := make(map[string]struct{}, len(a))
 	for _, s := range a {
 		aset[s] = struct{}{}
