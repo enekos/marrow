@@ -121,6 +121,33 @@ func taxonomyOverlap(a, b []string) float64 {
 	return float64(inter) / float64(denom)
 }
 
+// taxonomyOverlapIDF is the IDF-weighted variant of taxonomyOverlap.
+//
+// For each tag shared between src and d, accumulate idf[t]; divide by the
+// precomputed srcIDFSum (the sum of idf[t] for every t in src's taxonomy).
+// Result is in [0, 1]. Returns 0 on any empty input or when srcIDFSum <= 0,
+// and silently ignores candidate tags absent from idf.
+func taxonomyOverlapIDF(srcTags, dTags []string, idf map[string]float64, srcIDFSum float64) float64 {
+	if len(srcTags) == 0 || len(dTags) == 0 || srcIDFSum <= 0 {
+		return 0
+	}
+	srcSet := make(map[string]struct{}, len(srcTags))
+	for _, t := range srcTags {
+		srcSet[t] = struct{}{}
+	}
+	var acc float64
+	for _, t := range dTags {
+		if _, ok := srcSet[t]; !ok {
+			continue
+		}
+		acc += idf[t] // missing entries default to 0
+	}
+	if acc > srcIDFSum {
+		acc = srcIDFSum
+	}
+	return acc / srcIDFSum
+}
+
 // linkRe matches markdown inline links of the form [text](target). We pull
 // out the target for the caller to parse.
 var linkRe = regexp.MustCompile(`\[[^\]]*\]\(([^)\s]+)`)

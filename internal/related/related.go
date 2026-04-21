@@ -76,6 +76,14 @@ type Config struct {
 	// picked" reasons for the taxonomy signal (e.g. "category" → "category:politika"
 	// or "tag" → "tag:es|padre"). Default: "category".
 	TaxonomyReasonLabel string
+
+	// UseCatIDF enables IDF-weighting of the shared-taxonomy signal. When
+	// true, the taxonomy-overlap score for a candidate is sum(idf[t]) over
+	// shared tags divided by sum(idf[t]) over the source's tags, and the
+	// emitted taxonomy reason is the rarest (most informative) shared tag.
+	// When false, the behaviour is the flat intersection-size overlap that
+	// shipped originally. Default false.
+	UseCatIDF bool
 }
 
 // DefaultConfig returns the tuned defaults.
@@ -121,6 +129,8 @@ type docRecord struct {
 	stems        []string
 	titleStems   map[string]struct{}
 	salientTerms map[string]struct{} // TF-IDF top-K stems (set)
+
+	srcIDFSum float64 // sum of tagIDF over this doc's taxonomy (cached)
 }
 
 // Builder loads the corpus and computes related-article maps.
@@ -132,6 +142,9 @@ type Builder struct {
 	bySlug  map[string]*docRecord
 	linksFw map[int64]map[int64]struct{} // src -> set of destination IDs
 	linksBw map[int64]map[int64]struct{} // dst -> set of source IDs
+
+	tagDF  map[string]int
+	tagIDF map[string]float64
 }
 
 // NewBuilder returns a Builder ready for Load.
@@ -175,6 +188,7 @@ func NewBuilder(cfg Config, logger *slog.Logger) *Builder {
 		c.TaxonomyReasonLabel = cfg.TaxonomyReasonLabel
 	}
 	c.IgnoreSemantic = cfg.IgnoreSemantic
+	c.UseCatIDF = cfg.UseCatIDF
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -200,6 +214,7 @@ func (b *Builder) Load(ctx context.Context, database *db.DB, source, contentDir 
 		return fmt.Errorf("load frontmatter+links: %w", err)
 	}
 	b.computeSalience()
+	b.computeTagIDF()
 
 	// Auto-detect mock embeddings: mock vectors are (typically) deterministic
 	// short hashes — heuristically, if the first 8 dimensions of every doc
@@ -535,4 +550,38 @@ func (b *Builder) Compute(ctx context.Context) map[string][]RelatedDoc {
 		}
 	}
 	return result
+}
+
+// computeTagIDF populates tagDF, tagIDF, and per-doc srcIDFSum from the
+// already-loaded taxonomy fields. Called once after loadFrontmatterAndLinks.
+// Safe to call even when UseCatIDF is false; the maps are just unused.
+func (b *Builder) computeTagIDF() {
+	b.tagDF = map[string]int{}
+	for _, d := range b.docs {
+		seen := map[string]struct{}{}
+		for _, t := range d.taxonomy {
+			if _, ok := seen[t]; ok {
+				continue
+			}
+			seen[t] = struct{}{}
+			b.tagDF[t]++
+		}
+	}
+	n := float64(len(b.docs))
+	b.tagIDF = make(map[string]float64, len(b.tagDF))
+	for t, df := range b.tagDF {
+		b.tagIDF[t] = math.Log(1 + n/float64(df))
+	}
+	for _, d := range b.docs {
+		var sum float64
+		seen := map[string]struct{}{}
+		for _, t := range d.taxonomy {
+			if _, ok := seen[t]; ok {
+				continue
+			}
+			seen[t] = struct{}{}
+			sum += b.tagIDF[t]
+		}
+		d.srcIDFSum = sum
+	}
 }

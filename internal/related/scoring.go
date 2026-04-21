@@ -53,7 +53,7 @@ func (b *Builder) relatedFor(src *docRecord) []RelatedDoc {
 			Title:   c.doc.title,
 			Slug:    c.doc.slug,
 			Score:   roundScore(c.score),
-			Reasons: buildReasons(src, c),
+			Reasons: b.buildReasons(src, c),
 		})
 	}
 	return out
@@ -76,7 +76,11 @@ func (b *Builder) scoreAll(src *docRecord) []candidate {
 		}
 		c.lex = jaccardSalient(src.salientTerms, d.salientTerms)
 		c.link = b.linkScore(src, d)
-		c.cat = taxonomyOverlap(src.taxonomy, d.taxonomy)
+		if b.cfg.UseCatIDF {
+			c.cat = taxonomyOverlapIDF(src.taxonomy, d.taxonomy, b.tagIDF, src.srcIDFSum)
+		} else {
+			c.cat = taxonomyOverlap(src.taxonomy, d.taxonomy)
+		}
 		c.titleOv = titleOverlap(src.titleStems, d.titleStems)
 
 		score := b.cfg.WSem*c.sem +
@@ -161,8 +165,10 @@ func similarity(a, b *docRecord, ignoreSemantic bool) float64 {
 }
 
 // buildReasons produces a compact, human-meaningful list of explanations
-// for why a candidate was selected.
-func buildReasons(src *docRecord, c candidate) []string {
+// for why a candidate was selected. When UseCatIDF is active, the taxonomy
+// reason names the rarest (most informative) shared tag; otherwise it falls
+// back to the first-shared tag for backward compatibility.
+func (b *Builder) buildReasons(src *docRecord, c candidate) []string {
 	var reasons []string
 	if c.link >= 0.999 {
 		reasons = append(reasons, "linked")
@@ -173,15 +179,16 @@ func buildReasons(src *docRecord, c candidate) []string {
 	}
 	if c.cat > 0 {
 		label := "category"
-		// We can't reach Builder.cfg here; callers pass this through the
-		// candidate's score path. Looked up via closure isn't clean, so
-		// the label is attached by relatedFor before calling. Default
-		// stays "category" for back-compat.
 		if c.reasonLabel != "" {
 			label = c.reasonLabel
 		}
-		// Emit first shared taxonomy term for UI specificity.
-		if term := firstShared(src.taxonomy, c.doc.taxonomy); term != "" {
+		var term string
+		if b.cfg.UseCatIDF {
+			term = rarestShared(src.taxonomy, c.doc.taxonomy, b.tagDF)
+		} else {
+			term = firstShared(src.taxonomy, c.doc.taxonomy)
+		}
+		if term != "" {
 			reasons = append(reasons, label+":"+term)
 		} else {
 			reasons = append(reasons, label)
@@ -207,6 +214,33 @@ func firstShared(a, b []string) string {
 		}
 	}
 	return ""
+}
+
+// rarestShared returns the tag that is shared between a and b and has the
+// lowest document frequency (highest IDF, i.e. most informative). Ties are
+// broken lexicographically so the output is deterministic. Tags missing from
+// df are treated as df=0 (maximally rare). Returns "" when the sets are
+// disjoint.
+func rarestShared(a, b []string, df map[string]int) string {
+	aset := make(map[string]struct{}, len(a))
+	for _, s := range a {
+		aset[s] = struct{}{}
+	}
+	best := ""
+	bestDF := 0
+	haveBest := false
+	for _, s := range b {
+		if _, ok := aset[s]; !ok {
+			continue
+		}
+		d := df[s] // missing -> 0
+		if !haveBest || d < bestDF || (d == bestDF && s < best) {
+			best = s
+			bestDF = d
+			haveBest = true
+		}
+	}
+	return best
 }
 
 // cosine assumes both vectors are L2-normalised; returns dot product.

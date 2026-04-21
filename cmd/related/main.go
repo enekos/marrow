@@ -38,6 +38,7 @@ func main() {
 	noSem := fs.Bool("no-semantic", false, "Disable semantic signal (force lex+link+cat only)")
 	taxFields := fs.String("taxonomy-fields", "categories,categories_meta", "Comma-separated front-matter fields to read for the shared-taxonomy signal. Values may be lists of strings or of maps ({slug|name|value}). Defaults match Hugo's `categories` shape; pass e.g. `tag_pairs` for dictionary-style name|value pairs.")
 	taxLabel := fs.String("taxonomy-reason", "category", "Prefix used for taxonomy reasons in the output (e.g. `category` → `category:politika`, `tag` → `tag:es|padre`).")
+	catIDF := fs.Bool("cat-idf", false, "IDF-weight the shared-taxonomy signal. Off by default for backwards compatibility; recommended for short-gloss corpora like the dictionary where generic tags dominate.")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "parse flags: %v\n", err)
@@ -72,6 +73,7 @@ func main() {
 		IgnoreSemantic:      *noSem,
 		TaxonomyFields:      fields,
 		TaxonomyReasonLabel: *taxLabel,
+		UseCatIDF:           *catIDF,
 	}
 
 	builder := related.NewBuilder(cfg, logger)
