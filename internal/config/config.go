@@ -26,10 +26,11 @@ type Config struct {
 }
 
 type EmbeddingConfig struct {
-	Provider string `mapstructure:"provider"`
-	Model    string `mapstructure:"model"`
-	BaseURL  string `mapstructure:"base_url"`
-	APIKey   string `mapstructure:"api_key"`
+	Provider  string `mapstructure:"provider"`
+	Model     string `mapstructure:"model"`
+	BaseURL   string `mapstructure:"base_url"`
+	APIKey    string `mapstructure:"api_key"`
+	ModelPath string `mapstructure:"model_path"` // used by the "local" provider
 }
 
 type SourceConfig struct {
@@ -179,6 +180,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("embedding.model", "")
 	v.SetDefault("embedding.base_url", "")
 	v.SetDefault("embedding.api_key", "")
+	v.SetDefault("embedding.model_path", "")
 }
 
 // SiteByHost returns the site configuration matching the given host header.

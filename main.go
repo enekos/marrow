@@ -377,7 +377,13 @@ func openDBAndEmbed(logger *slog.Logger, dbPath string, cfg *config.Config) (*db
 		logger.Error("open db", "err", err)
 		os.Exit(1)
 	}
-	embedFn, err := embed.NewProvider(cfg.Embedding.Provider, cfg.Embedding.Model, cfg.Embedding.BaseURL, cfg.Embedding.APIKey)
+	embedFn, err := embed.NewProviderWithOptions(embed.Options{
+		Provider:  cfg.Embedding.Provider,
+		Model:     cfg.Embedding.Model,
+		BaseURL:   cfg.Embedding.BaseURL,
+		APIKey:    cfg.Embedding.APIKey,
+		ModelPath: cfg.Embedding.ModelPath,
+	})
 	if err != nil {
 		logger.Error("create embed provider", "err", err)
 		os.Exit(1)
