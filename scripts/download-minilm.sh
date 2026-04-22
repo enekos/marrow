@@ -17,6 +17,9 @@ curl -fSL "$BASE/vocab.txt" -o "$DEST/tokenizer_vocab.txt"
 echo "→ Downloading model weights (safetensors)"
 curl -fSL "$BASE/model.safetensors" -o "$DEST/model.safetensors"
 
+echo "→ Downloading sentence-transformer config (for max_seq_length)"
+curl -fSL "$BASE/sentence_bert_config.json" -o "$DEST/sentence_bert_config.json"
+
 echo "→ Done. Model installed at: $DEST"
 echo
 echo "Add to your marrow config:"

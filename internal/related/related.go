@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -121,6 +122,9 @@ type docRecord struct {
 	lang       string
 	slug       string
 	taxonomy   []string
+	// taxonomyHashes is the sorted uint32 hash of taxonomy terms used by
+	// the hot-path taxonomy-overlap check; saves a map allocation per pair.
+	taxonomyHashes []uint32
 
 	// doc-level embedding (mean-pooled chunk vectors, L2-normalised)
 	vec []float32
@@ -129,6 +133,11 @@ type docRecord struct {
 	stems        []string
 	titleStems   map[string]struct{}
 	salientTerms map[string]struct{} // TF-IDF top-K stems (set)
+
+	// salientHashes is the sorted uint32 FNV hash of each salient term.
+	// Jaccard intersection walks two sorted slices in O(n+m) with tight
+	// integer comparisons instead of hashing a string per lookup.
+	salientHashes []uint32
 
 	srcIDFSum float64 // sum of tagIDF over this doc's taxonomy (cached)
 }
@@ -140,11 +149,18 @@ type Builder struct {
 	docs    []*docRecord
 	byPath  map[string]*docRecord
 	bySlug  map[string]*docRecord
+	byID    map[int64]int                // doc.id -> index in docs (for inverted lookups)
 	linksFw map[int64]map[int64]struct{} // src -> set of destination IDs
 	linksBw map[int64]map[int64]struct{} // dst -> set of source IDs
 
 	tagDF  map[string]int
 	tagIDF map[string]float64
+
+	// Inverted indexes used by scoreAll to limit candidates from O(n) to the
+	// union of docs that share at least one salient term, taxonomy tag, or
+	// direct link with the source. Populated in Load.
+	termPostings map[string][]int32
+	tagPostings  map[string][]int32
 }
 
 // NewBuilder returns a Builder ready for Load.
@@ -215,6 +231,7 @@ func (b *Builder) Load(ctx context.Context, database *db.DB, source, contentDir 
 	}
 	b.computeSalience()
 	b.computeTagIDF()
+	b.buildInvertedIndex()
 
 	// Auto-detect mock embeddings: mock vectors are (typically) deterministic
 	// short hashes — heuristically, if the first 8 dimensions of every doc
@@ -298,6 +315,7 @@ func (b *Builder) loadDocs(ctx context.Context, database *db.DB, source string) 
 
 	b.docs = b.docs[:0]
 	b.byPath = map[string]*docRecord{}
+	b.byID = map[int64]int{}
 	for rows.Next() {
 		var id int64
 		var path, title, lang, stemmedText string
@@ -320,6 +338,7 @@ func (b *Builder) loadDocs(ctx context.Context, database *db.DB, source string) 
 			stems:      stems,
 			titleStems: titleStems,
 		}
+		b.byID[id] = len(b.docs)
 		b.docs = append(b.docs, rec)
 		b.byPath[path] = rec
 	}
@@ -508,43 +527,45 @@ func (b *Builder) Compute(ctx context.Context) map[string][]RelatedDoc {
 		return map[string][]RelatedDoc{}
 	}
 
-	type job struct{ idx int }
+	// Work-steal via atomic counter to avoid per-doc channel wakeups.
+	// Results are written into a preallocated slice (one slot per source)
+	// without locks — each index is written by exactly one goroutine.
 	type res struct {
 		path string
 		rels []RelatedDoc
 	}
+	results := make([]res, n)
 
-	jobs := make(chan job, n)
-	out := make(chan res, n)
 	workers := b.cfg.Workers
 	if workers <= 0 {
 		workers = 1
 	}
+	if workers > n {
+		workers = n
+	}
+
+	var cursor atomic.Int64
 	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
+	for w := 0; w < workers; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := range jobs {
-				src := b.docs[j.idx]
-				rels := b.relatedFor(src)
-				out <- res{path: src.path, rels: rels}
+			scratch := newScoreScratch(len(b.docs))
+			for {
+				i := int(cursor.Add(1) - 1)
+				if i >= n {
+					return
+				}
+				src := b.docs[i]
+				rels := b.relatedFor(src, scratch)
+				results[i] = res{path: src.path, rels: rels}
 			}
 		}()
 	}
-	go func() {
-		for i := range b.docs {
-			jobs <- job{idx: i}
-		}
-		close(jobs)
-	}()
-	go func() {
-		wg.Wait()
-		close(out)
-	}()
+	wg.Wait()
 
 	result := make(map[string][]RelatedDoc, n)
-	for r := range out {
+	for _, r := range results {
 		if len(r.rels) > 0 {
 			result[r.path] = r.rels
 		}

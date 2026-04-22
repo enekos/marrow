@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime/pprof"
 	"strings"
 
 	"marrow/internal/db"
@@ -39,6 +40,7 @@ func main() {
 	taxFields := fs.String("taxonomy-fields", "categories,categories_meta", "Comma-separated front-matter fields to read for the shared-taxonomy signal. Values may be lists of strings or of maps ({slug|name|value}). Defaults match Hugo's `categories` shape; pass e.g. `tag_pairs` for dictionary-style name|value pairs.")
 	taxLabel := fs.String("taxonomy-reason", "category", "Prefix used for taxonomy reasons in the output (e.g. `category` → `category:politika`, `tag` → `tag:es|padre`).")
 	catIDF := fs.Bool("cat-idf", false, "IDF-weight the shared-taxonomy signal. Off by default for backwards compatibility; recommended for short-gloss corpora like the dictionary where generic tags dominate.")
+	cpuProfile := fs.String("cpuprofile", "", "Write CPU profile to this file")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "parse flags: %v\n", err)
@@ -77,6 +79,20 @@ func main() {
 	}
 
 	builder := related.NewBuilder(cfg, logger)
+
+	if *cpuProfile != "" {
+		f, err := os.Create(*cpuProfile)
+		if err != nil {
+			logger.Error("create cpu profile", "err", err)
+			os.Exit(1)
+		}
+		defer f.Close()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			logger.Error("start cpu profile", "err", err)
+			os.Exit(1)
+		}
+		defer pprof.StopCPUProfile()
+	}
 
 	ctx := context.Background()
 	if err := builder.Load(ctx, database, *source, *contentDir); err != nil {

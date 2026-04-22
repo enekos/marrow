@@ -22,7 +22,7 @@ func Open(path string) (*DB, error) {
 	// Auto-register sqlite-vec for all future connections in this process.
 	vec.Auto()
 
-	dsn := path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	dsn := path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=temp_store(MEMORY)&_pragma=cache_size(-65536)&_pragma=mmap_size(268435456)"
 	sqlDB, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
@@ -34,6 +34,16 @@ func Open(path string) (*DB, error) {
 	// explicitly so cascade behavior on document_chunks is reliable.
 	if _, err := sqlDB.Exec(`PRAGMA foreign_keys = ON`); err != nil {
 		return nil, fmt.Errorf("enable foreign keys: %w", err)
+	}
+	// Reapply bulk-write pragmas explicitly in case DSN pragmas are ignored
+	// by the driver version.
+	for _, p := range []string{
+		`PRAGMA synchronous = NORMAL`,
+		`PRAGMA temp_store = MEMORY`,
+		`PRAGMA cache_size = -65536`,
+		`PRAGMA mmap_size = 268435456`,
+	} {
+		_, _ = sqlDB.Exec(p)
 	}
 	// SQLite performs best with a single writer; cap connections.
 	sqlDB.SetMaxOpenConns(1)

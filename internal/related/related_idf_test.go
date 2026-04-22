@@ -23,6 +23,7 @@ func newFixtureBuilder(t *testing.T, cfg Config, docs []*docRecord) *Builder {
 	b.linksFw = map[int64]map[int64]struct{}{}
 	b.linksBw = map[int64]map[int64]struct{}{}
 	b.computeTagIDF()
+	b.buildInvertedIndex()
 	return b
 }
 
@@ -73,7 +74,7 @@ func TestRelatedFor_IDFPrefersRareTagMatch(t *testing.T) {
 	}
 	b := newFixtureBuilder(t, cfg, docs)
 
-	rels := b.relatedFor(src)
+	rels := b.relatedFor(src, newScoreScratch(len(b.docs)))
 	if len(rels) == 0 {
 		t.Fatalf("expected some related docs, got 0")
 	}
@@ -125,7 +126,7 @@ func TestRelatedFor_FlatOverlapUnchanged(t *testing.T) {
 	}
 	b := newFixtureBuilder(t, cfg, docs)
 
-	rels := b.relatedFor(src)
+	rels := b.relatedFor(src, newScoreScratch(len(b.docs)))
 	if len(rels) != 2 {
 		t.Fatalf("expected 2 rels, got %d", len(rels))
 	}

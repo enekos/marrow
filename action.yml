@@ -1,0 +1,248 @@
+name: Marrow Semantic Graph
+description: Build a semantic "related articles" graph for a Markdown-based static site.
+author: enekos
+
+branding:
+  icon: git-merge
+  color: purple
+
+inputs:
+  content-dir:
+    description: Directory containing the site's Markdown files to index.
+    required: true
+  source-name:
+    description: Logical source name used inside the Marrow DB.
+    required: false
+    default: site
+  default-lang:
+    description: Default language code for documents without front-matter lang (en, es, eu).
+    required: false
+    default: en
+  output-path:
+    description: Path (relative to the workspace) where related.json will be written.
+    required: false
+    default: related.json
+  db-path:
+    description: Path for the SQLite DB. Defaults to a file under RUNNER_TEMP so it is discarded after the job.
+    required: false
+    default: ""
+  embedding-provider:
+    description: Embedding provider (mock or openai). Use openai for production-quality semantic vectors.
+    required: false
+    default: mock
+  embedding-model:
+    description: Embedding model (e.g. text-embedding-3-small for OpenAI). Ignored for mock.
+    required: false
+    default: text-embedding-3-small
+  embedding-base-url:
+    description: Override base URL for OpenAI-compatible embedding endpoints.
+    required: false
+    default: ""
+  openai-api-key:
+    description: OpenAI API key. Required when embedding-provider is openai.
+    required: false
+    default: ""
+  limit:
+    description: Number of related documents per document.
+    required: false
+    default: "10"
+  w-sem:
+    description: Weight — semantic cosine.
+    required: false
+    default: "0.55"
+  w-lex:
+    description: Weight — lexical Jaccard salience.
+    required: false
+    default: "0.20"
+  w-link:
+    description: Weight — internal link graph.
+    required: false
+    default: "0.15"
+  w-cat:
+    description: Weight — shared taxonomy/category.
+    required: false
+    default: "0.10"
+  mmr-lambda:
+    description: MMR relevance/diversity tradeoff (1 = pure relevance, 0 = pure diversity).
+    required: false
+    default: "0.72"
+  salient-top-k:
+    description: TF-IDF salient terms retained per document.
+    required: false
+    default: "24"
+  taxonomy-fields:
+    description: Comma-separated front-matter fields used for shared-taxonomy signal.
+    required: false
+    default: "categories,categories_meta"
+  taxonomy-reason:
+    description: Prefix for taxonomy reasons in the output (e.g. "category" -> "category:politika").
+    required: false
+    default: category
+  no-semantic:
+    description: Set to "true" to disable the semantic signal entirely (lex+link+cat only).
+    required: false
+    default: "false"
+  workers:
+    description: Concurrent per-source workers used by the related builder.
+    required: false
+    default: "8"
+  marrow-version:
+    description: Marrow release tag to install (e.g. v0.5.0). Defaults to the latest release.
+    required: false
+    default: latest
+
+outputs:
+  related-json-path:
+    description: Absolute path to the generated related.json file.
+    value: ${{ steps.build-graph.outputs.related-json-path }}
+  db-path:
+    description: Absolute path to the SQLite DB produced by the sync step.
+    value: ${{ steps.build-graph.outputs.db-path }}
+  document-count:
+    description: Number of documents present in the graph output.
+    value: ${{ steps.build-graph.outputs.document-count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install marrow
+      shell: bash
+      env:
+        MARROW_VERSION: ${{ inputs.marrow-version }}
+      run: |
+        set -euo pipefail
+        REPO="enekos/marrow"
+        OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+        ARCH_RAW="$(uname -m)"
+        case "$ARCH_RAW" in
+          x86_64|amd64) ARCH="amd64" ;;
+          arm64|aarch64) ARCH="arm64" ;;
+          *) echo "::error::Unsupported architecture: $ARCH_RAW"; exit 1 ;;
+        esac
+        case "$OS" in
+          linux|darwin) ;;
+          *) echo "::error::marrow-action only supports linux and darwin runners (got $OS)"; exit 1 ;;
+        esac
+
+        if [ "$OS" = "darwin" ]; then
+          ARCH="all"
+        fi
+
+        if [ "$MARROW_VERSION" = "latest" ] || [ -z "$MARROW_VERSION" ]; then
+          VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+            | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')"
+        else
+          VERSION="$MARROW_VERSION"
+        fi
+        if [ -z "$VERSION" ]; then
+          echo "::error::Could not resolve marrow release version"; exit 1
+        fi
+
+        ARCHIVE="marrow_${VERSION}_${OS}_${ARCH}.tar.gz"
+        URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE}"
+        echo "Downloading $URL"
+        TMP="$(mktemp -d)"
+        curl -fsSL -o "$TMP/$ARCHIVE" "$URL"
+        tar -xzf "$TMP/$ARCHIVE" -C "$TMP"
+
+        INSTALL_DIR="$HOME/.local/bin"
+        mkdir -p "$INSTALL_DIR"
+        cp "$TMP/marrow" "$INSTALL_DIR/marrow"
+        chmod +x "$INSTALL_DIR/marrow"
+        echo "$INSTALL_DIR" >> "$GITHUB_PATH"
+        "$INSTALL_DIR/marrow" -h >/dev/null 2>&1 || true
+        echo "Installed marrow $VERSION to $INSTALL_DIR"
+
+    - name: Build semantic graph
+      id: build-graph
+      shell: bash
+      env:
+        CONTENT_DIR: ${{ inputs.content-dir }}
+        SOURCE_NAME: ${{ inputs.source-name }}
+        DEFAULT_LANG: ${{ inputs.default-lang }}
+        OUTPUT_PATH: ${{ inputs.output-path }}
+        DB_PATH_IN: ${{ inputs.db-path }}
+        MARROW_EMBEDDING_PROVIDER: ${{ inputs.embedding-provider }}
+        MARROW_EMBEDDING_MODEL: ${{ inputs.embedding-model }}
+        MARROW_EMBEDDING_BASE_URL: ${{ inputs.embedding-base-url }}
+        MARROW_EMBEDDING_API_KEY: ${{ inputs.openai-api-key }}
+        LIMIT: ${{ inputs.limit }}
+        W_SEM: ${{ inputs.w-sem }}
+        W_LEX: ${{ inputs.w-lex }}
+        W_LINK: ${{ inputs.w-link }}
+        W_CAT: ${{ inputs.w-cat }}
+        MMR_LAMBDA: ${{ inputs.mmr-lambda }}
+        SALIENT_TOP_K: ${{ inputs.salient-top-k }}
+        TAXONOMY_FIELDS: ${{ inputs.taxonomy-fields }}
+        TAXONOMY_REASON: ${{ inputs.taxonomy-reason }}
+        NO_SEMANTIC: ${{ inputs.no-semantic }}
+        WORKERS: ${{ inputs.workers }}
+      run: |
+        set -euo pipefail
+
+        if [ ! -d "$CONTENT_DIR" ]; then
+          echo "::error::content-dir does not exist: $CONTENT_DIR"; exit 1
+        fi
+
+        case "$MARROW_EMBEDDING_PROVIDER" in
+          mock)
+            echo "::warning::Using mock embedding provider — semantic signal will be pseudo-random. Configure embedding-provider: openai for production graphs."
+            ;;
+          openai)
+            if [ -z "${MARROW_EMBEDDING_API_KEY:-}" ]; then
+              echo "::error::embedding-provider=openai requires openai-api-key"; exit 1
+            fi
+            ;;
+          *)
+            echo "::error::Unsupported embedding-provider: $MARROW_EMBEDDING_PROVIDER (expected mock or openai)"; exit 1
+            ;;
+        esac
+
+        if [ -z "$DB_PATH_IN" ]; then
+          DB_PATH="${RUNNER_TEMP:-/tmp}/marrow-$(date +%s).db"
+        else
+          DB_PATH="$DB_PATH_IN"
+          mkdir -p "$(dirname "$DB_PATH")"
+        fi
+
+        OUT_ABS="$GITHUB_WORKSPACE/$OUTPUT_PATH"
+        case "$OUTPUT_PATH" in
+          /*) OUT_ABS="$OUTPUT_PATH" ;;
+        esac
+        mkdir -p "$(dirname "$OUT_ABS")"
+
+        echo "Syncing $CONTENT_DIR into $DB_PATH ..."
+        marrow sync \
+          -db "$DB_PATH" \
+          -dir "$CONTENT_DIR" \
+          -source "$SOURCE_NAME" \
+          -default-lang "$DEFAULT_LANG"
+
+        NO_SEM_FLAG=""
+        if [ "$NO_SEMANTIC" = "true" ]; then
+          NO_SEM_FLAG="-no-semantic"
+        fi
+
+        echo "Computing related graph -> $OUT_ABS"
+        marrow related \
+          -db "$DB_PATH" \
+          -source "$SOURCE_NAME" \
+          -content-dir "$CONTENT_DIR" \
+          -limit "$LIMIT" \
+          -workers "$WORKERS" \
+          -w-sem "$W_SEM" \
+          -w-lex "$W_LEX" \
+          -w-link "$W_LINK" \
+          -w-cat "$W_CAT" \
+          -mmr-lambda "$MMR_LAMBDA" \
+          -salient-top-k "$SALIENT_TOP_K" \
+          -taxonomy-fields "$TAXONOMY_FIELDS" \
+          -taxonomy-reason "$TAXONOMY_REASON" \
+          $NO_SEM_FLAG \
+          -out "$OUT_ABS"
+
+        DOC_COUNT="$(python3 -c 'import json,sys;print(len(json.load(open(sys.argv[1]))))' "$OUT_ABS" 2>/dev/null || echo 0)"
+        echo "related-json-path=$OUT_ABS" >> "$GITHUB_OUTPUT"
+        echo "db-path=$DB_PATH" >> "$GITHUB_OUTPUT"
+        echo "document-count=$DOC_COUNT" >> "$GITHUB_OUTPUT"
+        echo "Generated graph for $DOC_COUNT documents"

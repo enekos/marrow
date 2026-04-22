@@ -1,6 +1,7 @@
 package related
 
 import (
+	"hash/fnv"
 	"math"
 	"sort"
 	"strings"
@@ -57,16 +58,66 @@ func (b *Builder) computeSalience() {
 			tfn := 1.0 + math.Log(float64(f))
 			scores = append(scores, scored{term: term, value: tfn * idf})
 		}
-		sort.Slice(scores, func(i, j int) bool { return scores[i].value > scores[j].value })
+		// Deterministic tiebreak by term so two runs on the same corpus pick
+		// the same TopKSalient terms when TF-IDF values collide.
+		sort.Slice(scores, func(i, j int) bool {
+			if scores[i].value != scores[j].value {
+				return scores[i].value > scores[j].value
+			}
+			return scores[i].term < scores[j].term
+		})
 		k := b.cfg.TopKSalient
 		if k > len(scores) {
 			k = len(scores)
 		}
 		set := make(map[string]struct{}, k)
+		hashes := make([]uint32, 0, k)
 		for i := 0; i < k; i++ {
 			set[scores[i].term] = struct{}{}
+			hashes = append(hashes, fnvHash32(scores[i].term))
 		}
+		sort.Slice(hashes, func(i, j int) bool { return hashes[i] < hashes[j] })
 		d.salientTerms = set
+		d.salientHashes = hashes
+	}
+}
+
+// fnvHash32 returns a 32-bit FNV-1a hash of s. Used to encode salient terms
+// as integers for fast O(n+m) Jaccard intersection on sorted slices.
+func fnvHash32(s string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return h.Sum32()
+}
+
+// buildInvertedIndex populates termPostings and tagPostings. Each posting is
+// a sorted list of doc indices (into b.docs) that contain the term/tag.
+// Used by scoreAll to enumerate candidates without scanning the whole corpus.
+func (b *Builder) buildInvertedIndex() {
+	b.termPostings = make(map[string][]int32, 4096)
+	b.tagPostings = make(map[string][]int32, 512)
+	if b.byID == nil {
+		b.byID = make(map[int64]int, len(b.docs))
+	}
+	for i, d := range b.docs {
+		idx := int32(i)
+		if _, ok := b.byID[d.id]; !ok {
+			b.byID[d.id] = i
+		}
+		for t := range d.salientTerms {
+			b.termPostings[t] = append(b.termPostings[t], idx)
+		}
+		for _, t := range d.taxonomy {
+			b.tagPostings[t] = append(b.tagPostings[t], idx)
+		}
+		if len(d.taxonomy) > 0 {
+			h := make([]uint32, len(d.taxonomy))
+			for j, t := range d.taxonomy {
+				h[j] = fnvHash32(t)
+			}
+			sort.Slice(h, func(i, j int) bool { return h[i] < h[j] })
+			d.taxonomyHashes = h
+		}
 	}
 }
 
@@ -85,7 +136,10 @@ func uniqueFields(s string) []string {
 	return out
 }
 
-// jaccardSalient computes Jaccard overlap of two salient-term sets.
+// jaccardSalient computes Jaccard overlap of two salient-term sets. When
+// both sides carry precomputed sorted hashes we walk them in O(n+m) with
+// integer compares. Falls back to the string-map implementation for tests
+// that construct docs by hand without precomputed hashes.
 func jaccardSalient(a, b map[string]struct{}) float64 {
 	if len(a) == 0 || len(b) == 0 {
 		return 0
@@ -98,6 +152,33 @@ func jaccardSalient(a, b map[string]struct{}) float64 {
 	for t := range small {
 		if _, ok := large[t]; ok {
 			inter++
+		}
+	}
+	if inter == 0 {
+		return 0
+	}
+	union := len(a) + len(b) - inter
+	return float64(inter) / float64(union)
+}
+
+// jaccardHashes is the hot-path form used by scorePair: two sorted uint32
+// slices, linear merge. Collisions would slightly over-count intersection
+// but for 32-bit FNV with ~24 terms per doc the probability is negligible.
+func jaccardHashes(a, b []uint32) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	var i, j, inter int
+	for i < len(a) && j < len(b) {
+		switch {
+		case a[i] == b[j]:
+			inter++
+			i++
+			j++
+		case a[i] < b[j]:
+			i++
+		default:
+			j++
 		}
 	}
 	if inter == 0 {

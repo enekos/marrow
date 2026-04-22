@@ -185,7 +185,7 @@ func TestOpenAI_Embed_Success(t *testing.T) {
 			t.Errorf("unexpected input: %s", req.Input)
 		}
 
-		resp := openaiResp{Data: []struct{ Embedding []float32 `json:"embedding"` }{{Embedding: []float32{3, 4}}}}
+		resp := openaiResp{Data: []struct{ Embedding []float32 `json:"embedding"`; Index int `json:"index"` }{{Embedding: []float32{3, 4}}}}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(resp)
@@ -256,7 +256,7 @@ func TestOpenAI_Embed_InvalidJSON(t *testing.T) {
 
 func TestOpenAI_Embed_EmptyData(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := openaiResp{Data: []struct{ Embedding []float32 `json:"embedding"` }{}}
+		resp := openaiResp{Data: []struct{ Embedding []float32 `json:"embedding"`; Index int `json:"index"` }{}}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(resp)

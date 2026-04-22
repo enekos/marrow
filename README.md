@@ -171,6 +171,21 @@ See [`docs/multi-site.md`](docs/multi-site.md) for full details.
 
 GitHub items are indexed with synthetic paths like `gh:owner/repo/issues/123` and `gh:owner/repo/pull/456`. The search API returns a `doc_type` field so you can distinguish between markdown files, issues, and pull requests.
 
+## GitHub Action
+
+Marrow ships a composite GitHub Action that builds a semantic "related articles"
+graph for any Markdown-based static site as part of CI. See
+[`docs/github-action.md`](docs/github-action.md).
+
+```yaml
+- uses: enekos/marrow@v0
+  with:
+    content-dir: content
+    embedding-provider: openai
+    openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+    output-path: data/related.json
+```
+
 ## Notes
 
 - Build requires `-tags sqlite_fts5` because FTS5 is gated behind a build tag in `mattn/go-sqlite3`.

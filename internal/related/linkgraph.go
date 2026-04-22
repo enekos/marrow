@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"math"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -92,6 +93,8 @@ func extractTaxonomyTerms(meta map[string]any, fields []string) []string {
 	for s := range set {
 		out = append(out, s)
 	}
+	// Sort so reasons like firstShared pick a deterministic tag across runs.
+	sort.Strings(out)
 	return out
 }
 
@@ -109,6 +112,35 @@ func taxonomyOverlap(a, b []string) float64 {
 	for _, s := range b {
 		if _, ok := aset[s]; ok {
 			inter++
+		}
+	}
+	if inter == 0 {
+		return 0
+	}
+	denom := len(a)
+	if len(b) < denom {
+		denom = len(b)
+	}
+	return float64(inter) / float64(denom)
+}
+
+// taxonomyOverlapHashes is the hot-path form. Walks two sorted uint32
+// slices in O(a+b) and returns intersection size divided by min(|a|,|b|).
+func taxonomyOverlapHashes(a, b []uint32) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	var i, j, inter int
+	for i < len(a) && j < len(b) {
+		switch {
+		case a[i] == b[j]:
+			inter++
+			i++
+			j++
+		case a[i] < b[j]:
+			i++
+		default:
+			j++
 		}
 	}
 	if inter == 0 {

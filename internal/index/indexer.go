@@ -59,6 +59,27 @@ func NewIndexer(database DBConn) *Indexer {
 // and documents_vec. Re-indexing an existing document replaces its chunks
 // and their vectors atomically.
 func (ix *Indexer) Index(ctx context.Context, doc Document) error {
+	tx, err := ix.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+	if err := IndexTx(ctx, tx, doc); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// TxExec is the subset of *sql.Tx used by IndexTx. It lets callers batch many
+// documents into a single transaction.
+type TxExec interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// IndexTx persists doc using the caller-provided transaction. Used by bulk
+// ingestion to amortize commit overhead across many documents.
+func IndexTx(ctx context.Context, tx TxExec, doc Document) error {
 	chunks := doc.Chunks
 	if len(chunks) == 0 {
 		if doc.Embedding == nil {
@@ -67,14 +88,8 @@ func (ix *Indexer) Index(ctx context.Context, doc Document) error {
 		chunks = []Chunk{{Index: 0, Text: doc.StemmedText, Embedding: doc.Embedding}}
 	}
 
-	tx, err := ix.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback()
-
 	var rowid int64
-	err = tx.QueryRowContext(ctx, `SELECT id FROM documents WHERE path = ?`, doc.Path).Scan(&rowid)
+	err := tx.QueryRowContext(ctx, `SELECT id FROM documents WHERE path = ?`, doc.Path).Scan(&rowid)
 	if err != nil && err != sql.ErrNoRows {
 		return fmt.Errorf("lookup document: %w", err)
 	}
@@ -97,30 +112,27 @@ func (ix *Indexer) Index(ctx context.Context, doc Document) error {
 		if err != nil {
 			return fmt.Errorf("update document: %w", err)
 		}
+		// Existing doc: clear its old FTS/chunk/vec rows before re-inserting.
+		if _, err := tx.ExecContext(ctx, `DELETE FROM documents_fts WHERE rowid = ?`, rowid); err != nil {
+			return fmt.Errorf("delete old fts: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM documents_vec WHERE rowid IN (SELECT id FROM document_chunks WHERE document_id = ?)`,
+			rowid,
+		); err != nil {
+			return fmt.Errorf("delete old vec: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM document_chunks WHERE document_id = ?`, rowid,
+		); err != nil {
+			return fmt.Errorf("delete old chunks: %w", err)
+		}
 	}
 
-	// Sync FTS row: delete old row first to avoid virtual table quirks.
-	_, _ = tx.ExecContext(ctx, `DELETE FROM documents_fts WHERE rowid = ?`, rowid)
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO documents_fts (rowid, title, content) VALUES (?, ?, ?)`,
 		rowid, doc.Title, doc.StemmedText); err != nil {
 		return fmt.Errorf("insert fts: %w", err)
-	}
-
-	// Replace chunks + vectors. Delete existing chunk vectors first (vec
-	// is a virtual table, so FK cascade cannot reach it) then the chunk
-	// rows themselves. Re-inserting lets AUTOINCREMENT hand out fresh IDs
-	// so we never collide with stale vec rowids.
-	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM documents_vec WHERE rowid IN (SELECT id FROM document_chunks WHERE document_id = ?)`,
-		rowid,
-	); err != nil {
-		return fmt.Errorf("delete old vec: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM document_chunks WHERE document_id = ?`, rowid,
-	); err != nil {
-		return fmt.Errorf("delete old chunks: %w", err)
 	}
 
 	for _, c := range chunks {
@@ -147,5 +159,5 @@ func (ix *Indexer) Index(ctx context.Context, doc Document) error {
 		}
 	}
 
-	return tx.Commit()
+	return nil
 }

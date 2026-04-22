@@ -1,0 +1,25 @@
+# Example workflow consumers of the marrow action can copy.
+# Renamed with .disabled suffix so it doesn't run in this repo's CI.
+name: example-build-graph
+
+on:
+  workflow_dispatch:
+
+jobs:
+  graph:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build semantic graph
+        id: marrow
+        uses: ./
+        with:
+          content-dir: docs
+          embedding-provider: mock
+          output-path: related.json
+      - name: Show counts
+        run: echo "graph has ${{ steps.marrow.outputs.document-count }} docs at ${{ steps.marrow.outputs.related-json-path }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: related-graph
+          path: ${{ steps.marrow.outputs.related-json-path }}
