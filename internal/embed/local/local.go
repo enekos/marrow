@@ -13,21 +13,22 @@ package local
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
-	"sync"
 
 	"marrow/internal/embed/local/model"
 	"marrow/internal/embed/local/tokenizer"
 	"marrow/internal/embed/local/weights"
 )
 
-// Encoder is a reusable embedder. Safe for concurrent use — Encode takes no
-// shared mutable state except the read-only weights and tokenizer.
+// Encoder is a reusable embedder. Safe for concurrent use: the tokenizer
+// and weights are read-only after load, and model.Encoder.Encode allocates
+// fresh per-call scratch so concurrent calls share no mutable state.
 type Encoder struct {
 	tk  *tokenizer.Tokenizer
 	enc *model.Encoder
-	mu  sync.Mutex // serializes Encode to avoid GC pressure from concurrent scratch allocs
 }
 
 // New loads the model directory and returns an Encoder.
@@ -38,6 +39,9 @@ func New(modelDir string) (*Encoder, error) {
 	tk, err := tokenizer.Load(vocabPath)
 	if err != nil {
 		return nil, fmt.Errorf("load tokenizer: %w", err)
+	}
+	if max, ok := readSentenceBertMaxSeq(modelDir); ok {
+		tk.SetMaxInput(max)
 	}
 	wf, err := weights.Open(weightsPath)
 	if err != nil {
@@ -58,7 +62,27 @@ func (e *Encoder) Embed(ctx context.Context, text string) ([]float32, error) {
 		return nil, err
 	}
 	enc := e.tk.Encode(text)
-	e.mu.Lock()
-	defer e.mu.Unlock()
 	return e.enc.Encode(enc.IDs, enc.AttentionMask, enc.TypeIDs), nil
+}
+
+// readSentenceBertMaxSeq reads sentence_bert_config.json (an optional
+// sibling of the model weights) and returns the max_seq_length. Missing,
+// unparseable, or zero-valued files return ok=false so the tokenizer keeps
+// its built-in default.
+func readSentenceBertMaxSeq(modelDir string) (int, bool) {
+	path := filepath.Join(modelDir, "sentence_bert_config.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	var cfg struct {
+		MaxSeqLength int `json:"max_seq_length"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return 0, false
+	}
+	if cfg.MaxSeqLength <= 0 {
+		return 0, false
+	}
+	return cfg.MaxSeqLength, true
 }

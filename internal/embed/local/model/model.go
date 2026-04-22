@@ -21,6 +21,8 @@ package model
 import (
 	"fmt"
 	"math"
+	"runtime"
+	"sync"
 
 	"marrow/internal/embed/local/mat"
 	"marrow/internal/embed/local/weights"
@@ -150,6 +152,16 @@ func Load(f *weights.File, cfg Config) (*Weights, error) {
 	return w, nil
 }
 
+// pickMatMul returns the serial or parallel matmul based on input length.
+// Below ~64 tokens the goroutine overhead exceeds the win; above, the row
+// split gives near-linear scaling.
+func pickMatMul(L int) func(a, b, c []float32, M, K, N int) {
+	if L >= 64 {
+		return mat.MatMulTransposeBParallel
+	}
+	return mat.MatMulTransposeB
+}
+
 func shapeEq(a, b []int) bool {
 	if len(a) != len(b) {
 		return false
@@ -218,65 +230,104 @@ func (e *Encoder) Encode(ids []int32, mask []int32, typeIDs []int32) []float32 {
 	inter := make([]float32, L*Hi)
 	ffnOut := make([]float32, L*H)
 
-	// Per-head scratch.
-	scores := make([]float32, L*L)
+	// Per-head scratch in contiguous [L, Dk] layout so we can feed it
+	// directly to the vectorized matmul primitives. Repacking once per
+	// head costs O(L·Dk) — cheap next to the O(L²·Dk) attention itself.
+	//
+	// With parallel head execution, each worker needs its own scratch so
+	// they don't tread on each other. We gate on L: below ~64 tokens the
+	// per-head work is small enough that goroutine wakeup costs (measured
+	// as ~25% of an encode on short inputs) dominate the speedup.
+	workers := 1
+	if L >= 64 {
+		workers = runtime.GOMAXPROCS(0)
+		if workers > A {
+			workers = A
+		}
+		if workers < 1 {
+			workers = 1
+		}
+	}
+	type headScratch struct {
+		qh, kh, vh []float32
+		attnH      []float32
+		scores     []float32
+	}
+	scratch := make([]headScratch, workers)
+	for wi := range scratch {
+		scratch[wi] = headScratch{
+			qh:     make([]float32, L*Dk),
+			kh:     make([]float32, L*Dk),
+			vh:     make([]float32, L*Dk),
+			attnH:  make([]float32, L*Dk),
+			scores: make([]float32, L*L),
+		}
+	}
 
 	for li := 0; li < cfg.Layers; li++ {
 		layer := &w.Layers[li]
 
-		// Q/K/V projections: x [L,H] @ W.T + b  where W is [H,H].
-		mat.MatMulTransposeB(x, layer.Wq, q, L, H, H)
+		// Q/K/V projections: x [L,H] @ W.T + b  where W is [H,H]. For long
+		// sequences the row-split parallel path wins; for very short inputs
+		// the goroutine dispatch dwarfs the work so we stay serial.
+		mm := pickMatMul(L)
+		mm(x, layer.Wq, q, L, H, H)
 		mat.AddBias(q, layer.Bq, L, H)
-		mat.MatMulTransposeB(x, layer.Wk, k, L, H, H)
+		mm(x, layer.Wk, k, L, H, H)
 		mat.AddBias(k, layer.Bk, L, H)
-		mat.MatMulTransposeB(x, layer.Wv, v, L, H, H)
+		mm(x, layer.Wv, v, L, H, H)
 		mat.AddBias(v, layer.Bv, L, H)
 
-		// Multi-head attention. We keep the [L, A*Dk] layout and index
-		// heads via strides rather than reshaping.
-		for h := 0; h < A; h++ {
-			// scores[i,j] = sum_d q[i, h*Dk+d] * k[j, h*Dk+d] * scale
-			for i := 0; i < L; i++ {
-				for j := 0; j < L; j++ {
-					var s float32
-					for d := 0; d < Dk; d++ {
-						s += q[i*H+h*Dk+d] * k[j*H+h*Dk+d]
+		// Multi-head attention: one job per head, executed in parallel.
+		// Each worker owns a private scratch; we assign heads round-robin
+		// so worker 0 handles heads 0, 0+workers, ... and so on.
+		var wg sync.WaitGroup
+		for wi := 0; wi < workers; wi++ {
+			wg.Add(1)
+			go func(wi int) {
+				defer wg.Done()
+				sc := &scratch[wi]
+				for h := wi; h < A; h += workers {
+					off := h * Dk
+					for i := 0; i < L; i++ {
+						copy(sc.qh[i*Dk:(i+1)*Dk], q[i*H+off:i*H+off+Dk])
+						copy(sc.kh[i*Dk:(i+1)*Dk], k[i*H+off:i*H+off+Dk])
+						copy(sc.vh[i*Dk:(i+1)*Dk], v[i*H+off:i*H+off+Dk])
 					}
-					scores[i*L+j] = s * scale
-				}
-			}
-			// Mask: positions where mask[j]==0 get -inf before softmax.
-			for i := 0; i < L; i++ {
-				for j := 0; j < L; j++ {
-					if mask[j] == 0 {
-						scores[i*L+j] = -1e9
+
+					// scores = qh @ kh^T  — shape [L,L].
+					mat.MatMulTransposeB(sc.qh, sc.kh, sc.scores, L, Dk, L)
+					for i := 0; i < L; i++ {
+						row := sc.scores[i*L : (i+1)*L]
+						for j := 0; j < L; j++ {
+							if mask[j] == 0 {
+								row[j] = -1e9
+							} else {
+								row[j] *= scale
+							}
+						}
+					}
+					mat.SoftmaxRows(sc.scores, L, L)
+					mat.MatMul(sc.scores, sc.vh, sc.attnH, L, L, Dk)
+					for i := 0; i < L; i++ {
+						copy(attn[i*H+off:i*H+off+Dk], sc.attnH[i*Dk:(i+1)*Dk])
 					}
 				}
-			}
-			mat.SoftmaxRows(scores, L, L)
-			// attn[i, h*Dk+d] = sum_j scores[i,j] * v[j, h*Dk+d]
-			for i := 0; i < L; i++ {
-				for d := 0; d < Dk; d++ {
-					var s float32
-					for j := 0; j < L; j++ {
-						s += scores[i*L+j] * v[j*H+h*Dk+d]
-					}
-					attn[i*H+h*Dk+d] = s
-				}
-			}
+			}(wi)
 		}
+		wg.Wait()
 
 		// Attention output projection + residual + LayerNorm.
-		mat.MatMulTransposeB(attn, layer.WattnOut, attnOut, L, H, H)
+		mm(attn, layer.WattnOut, attnOut, L, H, H)
 		mat.AddBias(attnOut, layer.BattnOut, L, H)
 		mat.AddInPlace(x, attnOut)
 		mat.LayerNorm(x, layer.LN1Gamma, layer.LN1Beta, L, H, cfg.LayerNormEps)
 
 		// FFN: intermediate + GELU + output + residual + LayerNorm.
-		mat.MatMulTransposeB(x, layer.WInter, inter, L, H, Hi)
+		mm(x, layer.WInter, inter, L, H, Hi)
 		mat.AddBias(inter, layer.BInter, L, Hi)
 		mat.GELU(inter)
-		mat.MatMulTransposeB(inter, layer.WOut, ffnOut, L, Hi, H)
+		mm(inter, layer.WOut, ffnOut, L, Hi, H)
 		mat.AddBias(ffnOut, layer.BOut, L, H)
 		mat.AddInPlace(x, ffnOut)
 		mat.LayerNorm(x, layer.LN2Gamma, layer.LN2Beta, L, H, cfg.LayerNormEps)

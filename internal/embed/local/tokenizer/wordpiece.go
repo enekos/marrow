@@ -76,6 +76,10 @@ func Load(vocabPath string) (*Tokenizer, error) {
 		clsID:    idOr(vocab, CLSToken, CLSID),
 		sepID:    idOr(vocab, SEPToken, SEPID),
 		padID:    idOr(vocab, PadToken, PadID),
+		// BERT's architectural cap. Individual sentence-transformer models
+		// truncate tighter — e.g. all-MiniLM-L6-v2 sets max_seq_length=256
+		// in sentence_bert_config.json. Callers load that file and call
+		// SetMaxInput when present; otherwise we default to 512.
 		maxInput: 512,
 	}
 	return t, nil
@@ -90,6 +94,20 @@ func idOr(v map[string]int, tok string, fallback int) int {
 
 // VocabSize returns the number of entries in the vocab.
 func (t *Tokenizer) VocabSize() int { return len(t.vocab) }
+
+// SetMaxInput overrides the maximum model input length (including [CLS] and
+// [SEP]). Used when loading configuration files like sentence_bert_config.json.
+// Values ≤ 2 are ignored so the tokenizer always has room for both special
+// tokens. Values above BERT's 512 position-embedding limit are clamped.
+func (t *Tokenizer) SetMaxInput(n int) {
+	if n <= 2 {
+		return
+	}
+	if n > 512 {
+		n = 512
+	}
+	t.maxInput = n
+}
 
 // Encoded is the output of Encode, suitable to feed directly to the model.
 type Encoded struct {
