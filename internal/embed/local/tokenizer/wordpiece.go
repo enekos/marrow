@@ -70,12 +70,12 @@ func Load(vocabPath string) (*Tokenizer, error) {
 	}
 
 	t := &Tokenizer{
-		vocab:    vocab,
-		doLower:  true,
-		unkID:    idOr(vocab, UnkToken, UnkID),
-		clsID:    idOr(vocab, CLSToken, CLSID),
-		sepID:    idOr(vocab, SEPToken, SEPID),
-		padID:    idOr(vocab, PadToken, PadID),
+		vocab:   vocab,
+		doLower: true,
+		unkID:   idOr(vocab, UnkToken, UnkID),
+		clsID:   idOr(vocab, CLSToken, CLSID),
+		sepID:   idOr(vocab, SEPToken, SEPID),
+		padID:   idOr(vocab, PadToken, PadID),
 		// BERT's architectural cap. Individual sentence-transformer models
 		// truncate tighter — e.g. all-MiniLM-L6-v2 sets max_seq_length=256
 		// in sentence_bert_config.json. Callers load that file and call
@@ -111,9 +111,9 @@ func (t *Tokenizer) SetMaxInput(n int) {
 
 // Encoded is the output of Encode, suitable to feed directly to the model.
 type Encoded struct {
-	IDs          []int32
+	IDs           []int32
 	AttentionMask []int32
-	TypeIDs      []int32 // all zeros for single-segment input
+	TypeIDs       []int32 // all zeros for single-segment input
 }
 
 // Encode tokenizes a single string and produces model-ready tensors.
