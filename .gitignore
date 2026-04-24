@@ -1,5 +1,6 @@
 # Project binaries and artifacts
 marrow
+/eval
 *.db
 *.db-shm
 *.db-wal
