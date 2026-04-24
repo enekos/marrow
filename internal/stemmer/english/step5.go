@@ -1,7 +1,7 @@
 package english
 
 import (
-	"marrow/internal/stemmer/snowballword"
+	"github.com/enekos/marrow/internal/stemmer/snowballword"
 )
 
 // Step 5 is the stemming of "e" and "l" sufficies

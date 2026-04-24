@@ -1,7 +1,7 @@
 package english
 
 import (
-	"marrow/internal/stemmer/snowballword"
+	"github.com/enekos/marrow/internal/stemmer/snowballword"
 )
 
 var step2Suffixes = [][]rune{

@@ -1,8 +1,8 @@
 package english
 
 import (
-	"marrow/internal/stemmer/romance"
-	"marrow/internal/stemmer/snowballword"
+	"github.com/enekos/marrow/internal/stemmer/romance"
+	"github.com/enekos/marrow/internal/stemmer/snowballword"
 )
 
 // Replaces all different kinds of apostrophes with a single

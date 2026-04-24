@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"marrow/internal/config"
-	"marrow/internal/db"
-	"marrow/internal/embed"
-	"marrow/internal/sync"
+	"github.com/enekos/marrow/internal/config"
+	"github.com/enekos/marrow/internal/db"
+	"github.com/enekos/marrow/internal/embed"
+	"github.com/enekos/marrow/internal/sync"
 )
 
 // Syncer coordinates indexing operations.

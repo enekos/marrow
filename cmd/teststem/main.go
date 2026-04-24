@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"marrow/internal/stemmer"
+	"github.com/enekos/marrow/internal/stemmer"
 )
 
 func main() {

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"marrow/internal/config"
-	"marrow/internal/server"
+	"github.com/enekos/marrow/internal/config"
+	"github.com/enekos/marrow/internal/server"
 )
 
 func TestSiteResolution(t *testing.T) {

@@ -1,0 +1,18 @@
+name: "@enekos/marrow"
+version: "0.2.0"
+display_name: "Marrow"
+description: "Local-first hybrid search engine for Markdown repositories."
+readme: README.md
+license: MIT
+categories: ["search", "database"]
+tags: ["markdown", "search", "sqlite", "fts5", "embeddings"]
+kind: cli
+cli:
+  install:
+    - type: go
+      module: "github.com/enekos/marrow"
+      tags: "sqlite_fts5"
+  bin: marrow
+compatibility:
+  harnesses: ["*"]
+  platforms: ["darwin", "linux"]

@@ -17,8 +17,8 @@ import (
 	"runtime/pprof"
 	"strings"
 
-	"marrow/internal/db"
-	"marrow/internal/related"
+	"github.com/enekos/marrow/internal/db"
+	"github.com/enekos/marrow/internal/related"
 )
 
 func main() {

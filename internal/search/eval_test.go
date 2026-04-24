@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"marrow/internal/db"
-	"marrow/internal/embed"
-	"marrow/internal/eval"
-	"marrow/internal/index"
-	"marrow/internal/testutil"
+	"github.com/enekos/marrow/internal/db"
+	"github.com/enekos/marrow/internal/embed"
+	"github.com/enekos/marrow/internal/eval"
+	"github.com/enekos/marrow/internal/index"
+	"github.com/enekos/marrow/internal/testutil"
 )
 
 // evalCorpus is a deterministic document set for retrieval evaluation.

@@ -3,8 +3,8 @@ package basque
 import (
 	"strings"
 
-	"marrow/internal/stemmer/romance"
-	"marrow/internal/stemmer/snowballword"
+	"github.com/enekos/marrow/internal/stemmer/romance"
+	"github.com/enekos/marrow/internal/stemmer/snowballword"
 )
 
 // Stemmer implements the language-agnostic stemmer interface for Basque.

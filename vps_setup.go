@@ -6,10 +6,10 @@ import (
 	"context"
 	"time"
 
-	"marrow/internal/config"
-	"marrow/internal/server"
-	"marrow/internal/service"
-	"marrow/internal/vps"
+	"github.com/enekos/marrow/internal/config"
+	"github.com/enekos/marrow/internal/server"
+	"github.com/enekos/marrow/internal/service"
+	"github.com/enekos/marrow/internal/vps"
 )
 
 func setupVPSServer(ctx context.Context, srv *server.Server, cfg *config.Config, syncer *service.Syncer) {

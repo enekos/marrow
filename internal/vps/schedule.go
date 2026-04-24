@@ -9,8 +9,8 @@ import (
 
 	"log/slog"
 
-	"marrow/internal/config"
-	"marrow/internal/service"
+	"github.com/enekos/marrow/internal/config"
+	"github.com/enekos/marrow/internal/service"
 )
 
 // StartScheduledSync begins a background ticker that re-syncs all configured

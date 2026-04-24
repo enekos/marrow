@@ -20,8 +20,8 @@ import (
 	"runtime"
 	"sync"
 
-	"marrow/internal/embed/local/mat"
-	"marrow/internal/embed/local/weights"
+	"github.com/enekos/marrow/internal/embed/local/mat"
+	"github.com/enekos/marrow/internal/embed/local/weights"
 )
 
 // parallelThreshold is the sequence length at or above which we use

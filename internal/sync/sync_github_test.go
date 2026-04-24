@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	"marrow/internal/db"
-	"marrow/internal/embed"
-	"marrow/internal/githubapi"
+	"github.com/enekos/marrow/internal/db"
+	"github.com/enekos/marrow/internal/embed"
+	"github.com/enekos/marrow/internal/githubapi"
 )
 
 type fakeGitHubClient struct {

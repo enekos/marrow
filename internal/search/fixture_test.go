@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"marrow/internal/db"
-	"marrow/internal/embed"
-	"marrow/internal/index"
-	"marrow/internal/markdown"
+	"github.com/enekos/marrow/internal/db"
+	"github.com/enekos/marrow/internal/embed"
+	"github.com/enekos/marrow/internal/index"
+	"github.com/enekos/marrow/internal/markdown"
 )
 
 // TestFixtureIndexing loads real markdown fixture files from disk,

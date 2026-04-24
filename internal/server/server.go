@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"time"
 
-	"marrow/internal/config"
-	"marrow/internal/db"
-	"marrow/internal/embed"
-	"marrow/internal/githubapi"
-	"marrow/internal/service"
+	"github.com/enekos/marrow/internal/config"
+	"github.com/enekos/marrow/internal/db"
+	"github.com/enekos/marrow/internal/embed"
+	"github.com/enekos/marrow/internal/githubapi"
+	"github.com/enekos/marrow/internal/service"
 )
 
 const shutdownTimeout = 10 * time.Second

@@ -1,8 +1,8 @@
 package spanish
 
 import (
-	"marrow/internal/stemmer/romance"
-	"marrow/internal/stemmer/snowballword"
+	"github.com/enekos/marrow/internal/stemmer/romance"
+	"github.com/enekos/marrow/internal/stemmer/snowballword"
 )
 
 // Change the vowels "áéíóú" into "aeiou".

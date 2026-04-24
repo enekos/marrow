@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"marrow/internal/config"
-	"marrow/internal/db"
-	"marrow/internal/embed"
-	"marrow/internal/githubapi"
-	"marrow/internal/index"
-	"marrow/internal/stemmer"
+	"github.com/enekos/marrow/internal/config"
+	"github.com/enekos/marrow/internal/db"
+	"github.com/enekos/marrow/internal/embed"
+	"github.com/enekos/marrow/internal/githubapi"
+	"github.com/enekos/marrow/internal/index"
+	"github.com/enekos/marrow/internal/stemmer"
 )
 
 // GitHubSyncer fetches open issues and pull requests via the GitHub API and indexes them.

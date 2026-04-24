@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"marrow/internal/db"
-	"marrow/internal/embed"
-	"marrow/internal/gitpull"
+	"github.com/enekos/marrow/internal/db"
+	"github.com/enekos/marrow/internal/embed"
+	"github.com/enekos/marrow/internal/gitpull"
 )
 
 // GitSyncer clones or pulls a GitHub repo and indexes changed markdown files.

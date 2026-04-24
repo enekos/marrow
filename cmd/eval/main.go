@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"marrow/internal/db"
-	"marrow/internal/embed"
-	"marrow/internal/eval"
-	"marrow/internal/search"
+	"github.com/enekos/marrow/internal/db"
+	"github.com/enekos/marrow/internal/embed"
+	"github.com/enekos/marrow/internal/eval"
+	"github.com/enekos/marrow/internal/search"
 )
 
 func main() {

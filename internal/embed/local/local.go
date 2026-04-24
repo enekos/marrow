@@ -18,9 +18,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"marrow/internal/embed/local/model"
-	"marrow/internal/embed/local/tokenizer"
-	"marrow/internal/embed/local/weights"
+	"github.com/enekos/marrow/internal/embed/local/model"
+	"github.com/enekos/marrow/internal/embed/local/tokenizer"
+	"github.com/enekos/marrow/internal/embed/local/weights"
 )
 
 // Encoder is a reusable embedder. Safe for concurrent use: the tokenizer

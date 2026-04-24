@@ -12,13 +12,13 @@ import (
 	"syscall"
 	"time"
 
-	"marrow/internal/config"
-	"marrow/internal/db"
-	"marrow/internal/embed"
-	"marrow/internal/githubapi"
-	"marrow/internal/search"
-	"marrow/internal/server"
-	"marrow/internal/service"
+	"github.com/enekos/marrow/internal/config"
+	"github.com/enekos/marrow/internal/db"
+	"github.com/enekos/marrow/internal/embed"
+	"github.com/enekos/marrow/internal/githubapi"
+	"github.com/enekos/marrow/internal/search"
+	"github.com/enekos/marrow/internal/server"
+	"github.com/enekos/marrow/internal/service"
 )
 
 func main() {

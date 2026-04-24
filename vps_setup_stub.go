@@ -5,9 +5,9 @@ package main
 import (
 	"context"
 
-	"marrow/internal/config"
-	"marrow/internal/server"
-	"marrow/internal/service"
+	"github.com/enekos/marrow/internal/config"
+	"github.com/enekos/marrow/internal/server"
+	"github.com/enekos/marrow/internal/service"
 )
 
 func setupVPSServer(ctx context.Context, srv *server.Server, cfg *config.Config, syncer *service.Syncer) {

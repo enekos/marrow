@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"marrow/internal/db"
-	"marrow/internal/embed"
-	"marrow/internal/index"
-	"marrow/internal/testutil"
+	"github.com/enekos/marrow/internal/db"
+	"github.com/enekos/marrow/internal/embed"
+	"github.com/enekos/marrow/internal/index"
+	"github.com/enekos/marrow/internal/testutil"
 )
 
 func setupTestDB(t *testing.T) *db.DB {

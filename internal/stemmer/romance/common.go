@@ -1,7 +1,7 @@
 package romance
 
 import (
-	"marrow/internal/stemmer/snowballword"
+	"github.com/enekos/marrow/internal/stemmer/snowballword"
 )
 
 // A function type that accepts a rune and

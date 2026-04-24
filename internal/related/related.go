@@ -27,8 +27,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"marrow/internal/db"
-	"marrow/internal/stemmer"
+	"github.com/enekos/marrow/internal/db"
+	"github.com/enekos/marrow/internal/stemmer"
 )
 
 // Config tunes the related-article pipeline. Zero-valued fields fall back to

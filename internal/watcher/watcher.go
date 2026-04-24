@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"marrow/internal/db"
+	"github.com/enekos/marrow/internal/db"
 )
 
 // Crawler walks a directory tree and identifies changed/new Markdown files.

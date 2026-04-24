@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
-	"marrow/internal/config"
-	"marrow/internal/server"
+	"github.com/enekos/marrow/internal/config"
+	"github.com/enekos/marrow/internal/server"
 )
 
 // middlewareChain applies a series of http.Handler middlewares.

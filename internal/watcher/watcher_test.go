@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"marrow/internal/db"
+	"github.com/enekos/marrow/internal/db"
 )
 
 func openTestDB(t *testing.T) *db.DB {

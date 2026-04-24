@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"marrow/internal/testutil"
+	"github.com/enekos/marrow/internal/testutil"
 )
 
 func TestIsStopWord(t *testing.T) {

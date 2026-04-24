@@ -3,7 +3,7 @@ package romance
 import (
 	"testing"
 
-	"marrow/internal/stemmer/snowballword"
+	"github.com/enekos/marrow/internal/stemmer/snowballword"
 )
 
 // isVowelASCII reports whether r is one of a, e, i, o, u (lowercase or uppercase).

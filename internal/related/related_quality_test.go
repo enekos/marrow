@@ -11,12 +11,12 @@ import (
 	"strings"
 	"testing"
 
-	"marrow/internal/chunker"
-	"marrow/internal/db"
-	"marrow/internal/embed"
-	"marrow/internal/index"
-	"marrow/internal/markdown"
-	"marrow/internal/stemmer"
+	"github.com/enekos/marrow/internal/chunker"
+	"github.com/enekos/marrow/internal/db"
+	"github.com/enekos/marrow/internal/embed"
+	"github.com/enekos/marrow/internal/index"
+	"github.com/enekos/marrow/internal/markdown"
+	"github.com/enekos/marrow/internal/stemmer"
 )
 
 // TestRelated_FixtureQuality is a regression test for the related-article

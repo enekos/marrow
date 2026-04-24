@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 
-	"marrow/internal/config"
-	"marrow/internal/search"
+	"github.com/enekos/marrow/internal/config"
+	"github.com/enekos/marrow/internal/search"
 )
 
 // Searcher wraps the search engine with a service-level API.

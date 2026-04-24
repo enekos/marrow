@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"marrow/internal/config"
-	"marrow/internal/db"
-	"marrow/internal/index"
-	"marrow/internal/search"
-	"marrow/internal/service"
+	"github.com/enekos/marrow/internal/config"
+	"github.com/enekos/marrow/internal/db"
+	"github.com/enekos/marrow/internal/index"
+	"github.com/enekos/marrow/internal/search"
+	"github.com/enekos/marrow/internal/service"
 )
 
 func mockEmbed(ctx context.Context, text string) ([]float32, error) {

@@ -1,4 +1,4 @@
-module marrow
+module github.com/enekos/marrow
 
 go 1.25.1
 

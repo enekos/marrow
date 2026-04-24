@@ -4,9 +4,9 @@ import (
 	"regexp"
 	"strings"
 
-	"marrow/internal/stemmer/basque"
-	"marrow/internal/stemmer/english"
-	"marrow/internal/stemmer/spanish"
+	"github.com/enekos/marrow/internal/stemmer/basque"
+	"github.com/enekos/marrow/internal/stemmer/english"
+	"github.com/enekos/marrow/internal/stemmer/spanish"
 )
 
 var wordSplitter = regexp.MustCompile(`[^\p{L}\p{N}]+`)

@@ -3,8 +3,8 @@
 package vps
 
 import (
-	"marrow/internal/config"
-	"marrow/internal/server"
+	"github.com/enekos/marrow/internal/config"
+	"github.com/enekos/marrow/internal/server"
 )
 
 // Setup wires all production middleware and background jobs into the server.

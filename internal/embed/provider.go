@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"marrow/internal/embed/local"
+	"github.com/enekos/marrow/internal/embed/local"
 )
 
 // NewBatchProvider returns a BatchFunc for the given provider. Providers

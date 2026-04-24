@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"marrow/internal/db"
+	"github.com/enekos/marrow/internal/db"
 )
 
 // Chunk is one embedded passage of a document. Chunks are what vector

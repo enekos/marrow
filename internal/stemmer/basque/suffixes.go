@@ -1,6 +1,6 @@
 package basque
 
-import "marrow/internal/stemmer/snowballword"
+import "github.com/enekos/marrow/internal/stemmer/snowballword"
 
 type suffixAction struct {
 	suffix      string

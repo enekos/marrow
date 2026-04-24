@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"marrow/internal/db"
-	"marrow/internal/embed"
-	"marrow/internal/watcher"
+	"github.com/enekos/marrow/internal/db"
+	"github.com/enekos/marrow/internal/embed"
+	"github.com/enekos/marrow/internal/watcher"
 )
 
 // LocalSyncer performs incremental sync over a local directory tree.

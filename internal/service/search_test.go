@@ -5,10 +5,10 @@ import (
 	"slices"
 	"testing"
 
-	"marrow/internal/config"
-	"marrow/internal/db"
-	"marrow/internal/index"
-	"marrow/internal/search"
+	"github.com/enekos/marrow/internal/config"
+	"github.com/enekos/marrow/internal/db"
+	"github.com/enekos/marrow/internal/index"
+	"github.com/enekos/marrow/internal/search"
 )
 
 // mockEmbed returns a deterministic 384-dim vector for testing.

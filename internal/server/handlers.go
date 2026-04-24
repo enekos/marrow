@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"marrow/internal/db"
+	"github.com/enekos/marrow/internal/db"
 )
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
