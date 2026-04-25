@@ -150,10 +150,7 @@ func ndcgAtK(ranked []string, relSet map[string]struct{}, k int) float64 {
 	}
 
 	// IDCG: ideal ranking has all relevant docs at the top.
-	idealRelCount := len(relSet)
-	if idealRelCount > k {
-		idealRelCount = k
-	}
+	idealRelCount := min(len(relSet), k)
 	idcg := 0.0
 	for i := 0; i < idealRelCount; i++ {
 		idcg += 1.0 / math.Log2(float64(i)+2.0)
@@ -162,11 +159,4 @@ func ndcgAtK(ranked []string, relSet map[string]struct{}, k int) float64 {
 		return 0
 	}
 	return dcg / idcg
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

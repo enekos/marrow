@@ -220,6 +220,162 @@ func TestHandleStats(t *testing.T) {
 	}
 }
 
+func TestHandleSearch_HighlightHTML(t *testing.T) {
+	srv, database := setupTestServer(t)
+	defer database.Close()
+
+	ctx := context.Background()
+	ix := index.NewIndexer(database)
+	vec, _ := mockEmbed(ctx, "anything")
+	if err := ix.Index(ctx, index.Document{
+		Path:        "blog/script.md",
+		Hash:        "h",
+		Title:       "Script Post",
+		Lang:        "en",
+		Source:      "blog-md",
+		DocType:     "markdown",
+		StemmedText: "the rocket flies past <script> tags safely",
+		Embedding:   vec,
+	}); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	body := `{"q":"rocket","limit":10,"highlight_format":"html"}`
+	req := httptest.NewRequest(http.MethodPost, "/search", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.handleSearch(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body = %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var resp struct {
+		Results []search.Result `json:"results"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Results) == 0 {
+		t.Fatalf("expected at least one result")
+	}
+	snip := resp.Results[0].Snippet
+	if !strings.Contains(snip, "<mark>") || !strings.Contains(snip, "</mark>") {
+		t.Errorf("snippet missing <mark> tags: %q", snip)
+	}
+	if !strings.Contains(snip, "&lt;script&gt;") {
+		t.Errorf("snippet did not HTML-escape <script>: %q", snip)
+	}
+	if strings.Contains(snip, "<script>") {
+		t.Errorf("snippet contains raw <script>, unsafe: %q", snip)
+	}
+}
+
+func TestHandleSearch_HighlightPlainDefault(t *testing.T) {
+	srv, database := setupTestServer(t)
+	defer database.Close()
+
+	ctx := context.Background()
+	ix := index.NewIndexer(database)
+	vec, _ := mockEmbed(ctx, "anything")
+	if err := ix.Index(ctx, index.Document{
+		Path:        "blog/plain.md",
+		Hash:        "h",
+		Title:       "Plain",
+		Lang:        "en",
+		Source:      "blog-md",
+		DocType:     "markdown",
+		StemmedText: "rocket science is fun",
+		Embedding:   vec,
+	}); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	body := `{"q":"rocket","limit":10}`
+	req := httptest.NewRequest(http.MethodPost, "/search", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.handleSearch(rr, req)
+
+	var resp struct {
+		Results []search.Result `json:"results"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Results) == 0 {
+		t.Fatalf("expected at least one result")
+	}
+	if strings.Contains(resp.Results[0].Snippet, "<mark>") {
+		t.Errorf("default snippet should not contain <mark>: %q", resp.Results[0].Snippet)
+	}
+}
+
+func TestHandleFacets_NoSite(t *testing.T) {
+	srv, database := setupTestServer(t)
+	defer database.Close()
+	seedDocs(t, database)
+
+	req := httptest.NewRequest(http.MethodGet, "/facets", nil)
+	rr := httptest.NewRecorder()
+	srv.handleFacets(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body = %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var resp db.Facets
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Sources) != 2 {
+		t.Errorf("sources count = %d, want 2 (got %+v)", len(resp.Sources), resp.Sources)
+	}
+	gotSources := map[string]int64{}
+	for _, fv := range resp.Sources {
+		gotSources[fv.Value] = fv.Count
+	}
+	if gotSources["blog-md"] != 1 || gotSources["docs-md"] != 1 {
+		t.Errorf("source counts = %v, want blog-md:1 docs-md:1", gotSources)
+	}
+	if len(resp.DocTypes) != 1 || resp.DocTypes[0].Value != "markdown" || resp.DocTypes[0].Count != 2 {
+		t.Errorf("doc_types = %+v, want [{markdown 2}]", resp.DocTypes)
+	}
+	if len(resp.Langs) != 1 || resp.Langs[0].Value != "en" || resp.Langs[0].Count != 2 {
+		t.Errorf("langs = %+v, want [{en 2}]", resp.Langs)
+	}
+}
+
+func TestHandleFacets_WithSite(t *testing.T) {
+	srv, database := setupTestServer(t)
+	defer database.Close()
+	seedDocs(t, database)
+
+	srv.Config.Sites = []config.SiteConfig{
+		{Name: "blog", Sources: []string{"blog-md"}},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/facets", nil)
+	req = req.WithContext(WithSite(req.Context(), &srv.Config.Sites[0]))
+	rr := httptest.NewRecorder()
+	srv.handleFacets(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body = %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var resp db.Facets
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Sources) != 1 || resp.Sources[0].Value != "blog-md" {
+		t.Errorf("sources = %+v, want only blog-md", resp.Sources)
+	}
+	if resp.DocTypes[0].Count != 1 {
+		t.Errorf("doc_types count = %d, want 1 (site-restricted)", resp.DocTypes[0].Count)
+	}
+}
+
 func TestHandleIndex(t *testing.T) {
 	srv, database := setupTestServer(t)
 	defer database.Close()

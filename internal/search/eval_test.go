@@ -82,41 +82,11 @@ var evalQrels = []eval.QRel{
 	{Query: "", Relevant: []string{}}, // edge case: empty query
 }
 
-func setupEvalDB(t *testing.T) (*db.DB, embed.Func) {
-	t.Helper()
-	dir := t.TempDir()
-	database, err := db.Open(filepath.Join(dir, "eval.db"))
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { database.Close() })
-
-	embedFn := embed.NewMock()
-	ix := index.NewIndexer(database)
-	ctx := context.Background()
-
-	for i := range evalCorpus {
-		doc := evalCorpus[i]
-		// Generate deterministic embedding from the document text.
-		text := doc.Title + " " + doc.StemmedText
-		vec, err := embedFn(ctx, text)
-		if err != nil {
-			t.Fatalf("embed %s: %v", doc.Path, err)
-		}
-		doc.Embedding = vec
-		if err := ix.Index(ctx, doc); err != nil {
-			t.Fatalf("index %s: %v", doc.Path, err)
-		}
-	}
-
-	return database, embedFn
-}
-
-func TestRetrievalEvaluation(t *testing.T) {
-	database, embedFn := setupEvalDB(t)
-	engine := NewEngine(database, embedFn)
-
-	searchFn := func(ctx context.Context, query, lang string, limit int) ([]string, error) {
+// pathSearchFunc adapts a search.Engine to eval.SearchFunc by extracting
+// result paths. Shared across the eval tests and benchmark to keep the
+// search/eval boundary in one place.
+func pathSearchFunc(engine *Engine) eval.SearchFunc {
+	return func(ctx context.Context, query, lang string, limit int) ([]string, error) {
 		results, err := engine.Search(ctx, query, lang, limit, Filter{})
 		if err != nil {
 			return nil, err
@@ -127,7 +97,46 @@ func TestRetrievalEvaluation(t *testing.T) {
 		}
 		return paths, nil
 	}
-	runner := eval.NewRunner(searchFn)
+}
+
+// indexCorpus indexes evalCorpus into database using embedFn. Returns nil
+// on success, or a fatal helper since both call sites just abort the test.
+func indexCorpus(tb testing.TB, database *db.DB, embedFn embed.Func) {
+	tb.Helper()
+	ix := index.NewIndexer(database)
+	ctx := context.Background()
+	for i := range evalCorpus {
+		doc := evalCorpus[i]
+		vec, err := embedFn(ctx, doc.Title+" "+doc.StemmedText)
+		if err != nil {
+			tb.Fatalf("embed %s: %v", doc.Path, err)
+		}
+		doc.Embedding = vec
+		if err := ix.Index(ctx, doc); err != nil {
+			tb.Fatalf("index %s: %v", doc.Path, err)
+		}
+	}
+}
+
+func setupEvalDB(t *testing.T) (*db.DB, embed.Func) {
+	t.Helper()
+	dir := t.TempDir()
+	database, err := db.Open(filepath.Join(dir, "eval.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	embedFn := embed.NewMock()
+	indexCorpus(t, database, embedFn)
+	return database, embedFn
+}
+
+func TestRetrievalEvaluation(t *testing.T) {
+	database, embedFn := setupEvalDB(t)
+	engine := NewEngine(database, embedFn)
+
+	runner := eval.NewRunner(pathSearchFunc(engine))
 	runner.Cutoffs = []int{1, 3, 5, 10}
 	runner.Limit = 10
 
@@ -203,85 +212,56 @@ func toSlimReport(r eval.Report) slimReport {
 func TestRetrievalEvaluation_PerQuery(t *testing.T) {
 	database, embedFn := setupEvalDB(t)
 	engine := NewEngine(database, embedFn)
-	searchFn := func(ctx context.Context, query, lang string, limit int) ([]string, error) {
-		results, err := engine.Search(ctx, query, lang, limit, Filter{})
-		if err != nil {
-			return nil, err
-		}
-		paths := make([]string, len(results))
-		for i, r := range results {
-			paths[i] = r.Path
-		}
-		return paths, nil
-	}
-	runner := eval.NewRunner(searchFn)
+	runner := eval.NewRunner(pathSearchFunc(engine))
 	runner.Cutoffs = []int{1, 3, 5, 10}
 	runner.Limit = 10
 
 	ctx := context.Background()
 	for _, qrel := range evalQrels {
-		qrel := qrel
 		t.Run(qrel.Query, func(t *testing.T) {
 			res, err := runner.Run(ctx, qrel)
 			if err != nil {
 				t.Fatalf("run: %v", err)
 			}
-			// At least one relevant doc should appear in top 10.
-			found := false
-			for _, p := range res.RankedPaths {
-				for _, r := range qrel.Relevant {
-					if p == r {
-						found = true
-						break
-					}
-				}
-				if found {
-					break
-				}
-			}
-			if !found {
-				t.Logf("query %q: no relevant doc in top 10", qrel.Query)
-				t.Logf("  ranking: %v", res.RankedPaths)
+			if !hasOverlap(res.RankedPaths, qrel.Relevant) {
+				t.Logf("query %q: no relevant doc in top %d", qrel.Query, runner.Limit)
+				t.Logf("  ranking:  %v", res.RankedPaths)
 				t.Logf("  relevant: %v", qrel.Relevant)
 			}
 		})
 	}
 }
 
+// hasOverlap reports whether ranked and relevant share at least one path.
+func hasOverlap(ranked, relevant []string) bool {
+	if len(ranked) == 0 || len(relevant) == 0 {
+		return false
+	}
+	rel := make(map[string]struct{}, len(relevant))
+	for _, p := range relevant {
+		rel[p] = struct{}{}
+	}
+	for _, p := range ranked {
+		if _, ok := rel[p]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // BenchmarkRetrievalEvaluation measures end-to-end search+eval latency.
 func BenchmarkRetrievalEvaluation(b *testing.B) {
-	dir := b.TempDir()
-	database, err := db.Open(filepath.Join(dir, "bench.db"))
+	database, err := db.Open(filepath.Join(b.TempDir(), "bench.db"))
 	if err != nil {
 		b.Fatalf("open db: %v", err)
 	}
 	defer database.Close()
 
 	embedFn := embed.NewMock()
-	ix := index.NewIndexer(database)
+	indexCorpus(b, database, embedFn)
+
+	runner := eval.NewRunner(pathSearchFunc(NewEngine(database, embedFn)))
 	ctx := context.Background()
-
-	for i := range evalCorpus {
-		doc := evalCorpus[i]
-		text := doc.Title + " " + doc.StemmedText
-		vec, _ := embedFn(ctx, text)
-		doc.Embedding = vec
-		_ = ix.Index(ctx, doc)
-	}
-
-	engine := NewEngine(database, embedFn)
-	searchFn := func(ctx context.Context, query, lang string, limit int) ([]string, error) {
-		results, err := engine.Search(ctx, query, lang, limit, Filter{})
-		if err != nil {
-			return nil, err
-		}
-		paths := make([]string, len(results))
-		for i, r := range results {
-			paths[i] = r.Path
-		}
-		return paths, nil
-	}
-	runner := eval.NewRunner(searchFn)
 
 	b.ResetTimer()
 	b.ReportAllocs()

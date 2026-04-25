@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"html"
 	"slices"
 	"strings"
 	"sync"
@@ -97,6 +98,10 @@ type Filter struct {
 	Sources []string
 	DocType string
 	Lang    string
+	// HighlightFormat controls how matched terms are marked in snippets.
+	// "" (default) returns plain text with no markup; "html" wraps each
+	// matched term in <mark> tags and HTML-escapes the surrounding text.
+	HighlightFormat string
 }
 
 // DBConn is the subset of database operations required by Engine.
@@ -172,7 +177,7 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 
 	go func() {
 		defer wg.Done()
-		ftsRes, ftsErr = e.queryFTS(ctx, stemmedQuery, limit)
+		ftsRes, ftsErr = e.queryFTS(ctx, stemmedQuery, limit, filter.HighlightFormat)
 	}()
 
 	go func() {
@@ -276,14 +281,29 @@ type ftsInfo struct {
 	snippet string
 }
 
-func (e *Engine) queryFTS(ctx context.Context, stemmedQuery string, limit int) (*ftsResult, error) {
+// FTS5's snippet() takes literal pre/post markers and inserts them verbatim
+// into the matched text. To produce safe HTML, we ask SQLite for sentinel
+// bytes that cannot appear in real content, then HTML-escape the snippet and
+// replace the sentinels with <mark> tags.
+const (
+	highlightOpenSentinel  = "\x01"
+	highlightCloseSentinel = "\x02"
+)
+
+func (e *Engine) queryFTS(ctx context.Context, stemmedQuery string, limit int, highlightFormat string) (*ftsResult, error) {
+	openMark, closeMark := "", ""
+	if highlightFormat == "html" {
+		openMark = highlightOpenSentinel
+		closeMark = highlightCloseSentinel
+	}
+
 	ftsSQL := fmt.Sprintf(
-		`SELECT rowid, bm25(documents_fts, %g, %g), snippet(documents_fts, 1, '', '', '…', %d) `+
+		`SELECT rowid, bm25(documents_fts, %g, %g), snippet(documents_fts, 1, ?, ?, '…', %d) `+
 			`FROM documents_fts WHERE documents_fts MATCH ? ORDER BY bm25(documents_fts, %g, %g) LIMIT ?`,
 		e.cfg.BM25TitleWeight, e.cfg.BM25ContentWeight, e.cfg.SnippetMaxTokens,
 		e.cfg.BM25TitleWeight, e.cfg.BM25ContentWeight,
 	)
-	rows, err := e.db.QueryContext(ctx, ftsSQL, stemmedQuery, limit*e.cfg.FetchMultiplierFTS)
+	rows, err := e.db.QueryContext(ctx, ftsSQL, openMark, closeMark, stemmedQuery, limit*e.cfg.FetchMultiplierFTS)
 	if err != nil {
 		return nil, fmt.Errorf("fts query: %w", err)
 	}
@@ -298,6 +318,9 @@ func (e *Engine) queryFTS(ctx context.Context, stemmedQuery string, limit int) (
 		if err := rows.Scan(&id, &bm25, &snip); err != nil {
 			return nil, fmt.Errorf("scan fts row: %w", err)
 		}
+		if highlightFormat == "html" {
+			snip = formatSnippetHTML(snip)
+		}
 		res.infos[id] = ftsInfo{rank: rank, bm25: bm25, snippet: snip}
 		res.order = append(res.order, id)
 		rank++
@@ -306,6 +329,13 @@ func (e *Engine) queryFTS(ctx context.Context, stemmedQuery string, limit int) (
 		return nil, fmt.Errorf("fts rows: %w", err)
 	}
 	return res, nil
+}
+
+func formatSnippetHTML(snip string) string {
+	escaped := html.EscapeString(snip)
+	escaped = strings.ReplaceAll(escaped, highlightOpenSentinel, "<mark>")
+	escaped = strings.ReplaceAll(escaped, highlightCloseSentinel, "</mark>")
+	return escaped
 }
 
 // ---------------------------------------------------------------------------

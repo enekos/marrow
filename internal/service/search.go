@@ -15,10 +15,11 @@ type Searcher struct {
 // Search runs a query and returns ranked results.
 // If site is provided and no explicit source filter is given, the search is
 // constrained to the sources belonging to that site.
-func (s *Searcher) Search(ctx context.Context, query string, limit int, source, docType, lang string, site *config.SiteConfig) ([]search.Result, error) {
+func (s *Searcher) Search(ctx context.Context, query string, limit int, source, docType, lang, highlightFormat string, site *config.SiteConfig) ([]search.Result, error) {
 	filter := search.Filter{
-		DocType: docType,
-		Lang:    lang,
+		DocType:         docType,
+		Lang:            lang,
+		HighlightFormat: highlightFormat,
 	}
 	// When a site is resolved and the caller didn't specify a source,
 	// automatically restrict to the site's configured sources.

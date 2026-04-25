@@ -51,13 +51,31 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(stats)
 }
 
+func (s *Server) handleFacets(w http.ResponseWriter, r *http.Request) {
+	var allowed []string
+	if site := SiteFromContext(r.Context()); site != nil {
+		allowed = site.Sources
+	}
+
+	facets, err := s.StatsRepo.Facets(r.Context(), allowed)
+	if err != nil {
+		s.Logger.Error("facets error", "err", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(facets)
+}
+
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Query   string `json:"q"`
-		Limit   int    `json:"limit"`
-		Lang    string `json:"lang"`
-		Source  string `json:"source"`
-		DocType string `json:"doc_type"`
+		Query           string `json:"q"`
+		Limit           int    `json:"limit"`
+		Lang            string `json:"lang"`
+		Source          string `json:"source"`
+		DocType         string `json:"doc_type"`
+		HighlightFormat string `json:"highlight_format"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
@@ -73,7 +91,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	// If a site is resolved via middleware, constrain search to its sources.
 	site := SiteFromContext(r.Context())
 
-	results, err := s.Searcher.Search(ctx, req.Query, req.Limit, req.Source, req.DocType, req.Lang, site)
+	results, err := s.Searcher.Search(ctx, req.Query, req.Limit, req.Source, req.DocType, req.Lang, req.HighlightFormat, site)
 	if err != nil {
 		s.Logger.Error("search error", "err", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)

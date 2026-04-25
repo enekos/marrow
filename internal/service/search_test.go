@@ -98,7 +98,7 @@ func TestSearcher_Search_SiteFiltering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			results, err := searcher.Search(ctx, "hello", 10, tt.explicit, "", "en", tt.site)
+			results, err := searcher.Search(ctx, "hello", 10, tt.explicit, "", "en", "", tt.site)
 			if err != nil {
 				t.Fatalf("search error: %v", err)
 			}

@@ -2,6 +2,8 @@
 
 This guide covers deploying Marrow as a persistent search service on a VPS using Docker Compose + Caddy.
 
+> Prefer Apache as your reverse proxy? See [apache-reverse-proxy.md](./apache-reverse-proxy.md).
+
 ## Prerequisites
 
 - A VPS with Docker and Docker Compose installed

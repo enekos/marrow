@@ -3,8 +3,24 @@ package db
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 )
+
+// FacetValue is a single facet bucket: a value present in the documents table
+// and the count of documents that have it.
+type FacetValue struct {
+	Value string `json:"value"`
+	Count int64  `json:"count"`
+}
+
+// Facets groups available filter values for the documents table. Each slice is
+// sorted by count desc, then value asc, so clients can render them as-is.
+type Facets struct {
+	Sources  []FacetValue `json:"sources"`
+	DocTypes []FacetValue `json:"doc_types"`
+	Langs    []FacetValue `json:"langs"`
+}
 
 // StatsRepo handles database statistics.
 type StatsRepo struct {
@@ -83,4 +99,63 @@ func (r *StatsRepo) Get(ctx context.Context) (*Stats, error) {
 		LastSyncAt:  lastSync,
 		Sources:     sources,
 	}, nil
+}
+
+// Facets returns the distinct values of `source`, `doc_type` and `lang` in the
+// documents table together with their counts. If allowedSources is non-empty,
+// the result is restricted to documents whose source is in that list — used to
+// scope facets to a multi-tenant site's allowed sources.
+func (r *StatsRepo) Facets(ctx context.Context, allowedSources []string) (*Facets, error) {
+	where, args := buildSourceFilter(allowedSources)
+
+	sources, err := r.facetColumn(ctx, "source", where, args)
+	if err != nil {
+		return nil, err
+	}
+	docTypes, err := r.facetColumn(ctx, "doc_type", where, args)
+	if err != nil {
+		return nil, err
+	}
+	langs, err := r.facetColumn(ctx, "lang", where, args)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Facets{Sources: sources, DocTypes: docTypes, Langs: langs}, nil
+}
+
+func (r *StatsRepo) facetColumn(ctx context.Context, col, where string, args []any) ([]FacetValue, error) {
+	// col is a fixed identifier from a closed set ("source", "doc_type",
+	// "lang"); the where clause is built with placeholders only.
+	q := "SELECT " + col + ", COUNT(*) FROM documents " + where +
+		" GROUP BY " + col + " ORDER BY COUNT(*) DESC, " + col + " ASC"
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []FacetValue
+	for rows.Next() {
+		var v sql.NullString
+		var c int64
+		if err := rows.Scan(&v, &c); err != nil {
+			return nil, err
+		}
+		out = append(out, FacetValue{Value: v.String, Count: c})
+	}
+	return out, rows.Err()
+}
+
+func buildSourceFilter(allowed []string) (string, []any) {
+	if len(allowed) == 0 {
+		return "", nil
+	}
+	placeholders := make([]string, len(allowed))
+	args := make([]any, len(allowed))
+	for i, s := range allowed {
+		placeholders[i] = "?"
+		args[i] = s
+	}
+	return "WHERE source IN (" + strings.Join(placeholders, ",") + ")", args
 }

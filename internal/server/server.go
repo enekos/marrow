@@ -71,6 +71,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", s.handleIndex)
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /stats", s.handleStats)
+	mux.HandleFunc("GET /facets", s.handleFacets)
 	mux.HandleFunc("POST /search", s.handleSearch)
 	mux.HandleFunc("POST /webhook", s.handleWebhook)
 }
