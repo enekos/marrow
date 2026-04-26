@@ -34,8 +34,7 @@ func (r *Runner) Run(ctx context.Context, qrel QRel) (PerQueryResult, error) {
 		return PerQueryResult{}, fmt.Errorf("search %q: %w", qrel.Query, err)
 	}
 
-	m := ComputeMetrics(paths, qrel.Relevant, r.Cutoffs)
-	m.Query = qrel.Query
+	m := ComputeMetrics(paths, qrel, r.Cutoffs)
 	return m, nil
 }
 

@@ -8,11 +8,62 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/enekos/marrow/internal/embed/local"
 )
+
+// openaiMinInterval gates OpenAI/Gemini requests to a configurable minimum
+// inter-request delay. Set via MARROW_OPENAI_MIN_INTERVAL_MS — default 0
+// (no pacing). Free-tier Gemini sits at 100 RPM, so a 700 ms gap keeps us
+// safely under the limit.
+var (
+	openaiPacerOnce sync.Once
+	openaiPacer     *pacer
+)
+
+type pacer struct {
+	mu       sync.Mutex
+	last     time.Time
+	interval time.Duration
+}
+
+func (p *pacer) wait(ctx context.Context) error {
+	if p == nil || p.interval <= 0 {
+		return nil
+	}
+	p.mu.Lock()
+	now := time.Now()
+	if !p.last.IsZero() {
+		gap := now.Sub(p.last)
+		if gap < p.interval {
+			sleep := p.interval - gap
+			p.last = now.Add(sleep)
+			p.mu.Unlock()
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(sleep):
+				return nil
+			}
+		}
+	}
+	p.last = now
+	p.mu.Unlock()
+	return nil
+}
+
+func openaiPace(ctx context.Context) error {
+	openaiPacerOnce.Do(func() {
+		ms, _ := strconv.Atoi(os.Getenv("MARROW_OPENAI_MIN_INTERVAL_MS"))
+		openaiPacer = &pacer{interval: time.Duration(ms) * time.Millisecond}
+	})
+	return openaiPacer.wait(ctx)
+}
 
 // NewBatchProvider returns a BatchFunc for the given provider. Providers
 // with native batching (OpenAI) get a true batched implementation; others
@@ -181,8 +232,65 @@ func NewOpenAI(baseURL, apiKey, model string) Func {
 }
 
 type openaiReq struct {
-	Model string `json:"model"`
-	Input any    `json:"input"` // string or []string
+	Model      string `json:"model"`
+	Input      any    `json:"input"` // string or []string
+	Dimensions int    `json:"dimensions,omitempty"`
+}
+
+// doWithRetry sends req and retries on HTTP 429 / 5xx with exponential
+// backoff. Honors the server's Retry-After header when present (Google's
+// Gemini OpenAI-compat endpoint sets it on quota errors). Bounded so a
+// permanent failure does not stall the sync forever.
+func doWithRetry(ctx context.Context, client *http.Client, req *http.Request, body []byte) (*http.Response, error) {
+	const maxAttempts = 6
+	backoff := 2 * time.Second
+	for attempt := 1; ; attempt++ {
+		if attempt > 1 {
+			req2 := req.Clone(ctx)
+			req2.Body = io.NopCloser(bytes.NewReader(body))
+			req = req2
+		}
+		resp, err := client.Do(req)
+		if err == nil && resp.StatusCode != http.StatusTooManyRequests &&
+			!(resp.StatusCode >= 500 && resp.StatusCode < 600) {
+			return resp, nil
+		}
+		if attempt >= maxAttempts {
+			if err != nil {
+				return nil, err
+			}
+			return resp, nil
+		}
+		wait := backoff
+		if resp != nil {
+			if ra := resp.Header.Get("Retry-After"); ra != "" {
+				if secs, perr := time.ParseDuration(ra + "s"); perr == nil && secs > 0 {
+					wait = secs
+				}
+			}
+			resp.Body.Close()
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(wait):
+		}
+		backoff *= 2
+		if backoff > 60*time.Second {
+			backoff = 60 * time.Second
+		}
+	}
+}
+
+// embeddingsURL builds the embeddings endpoint, tolerating base URLs that
+// already encode an API version segment (e.g. Google's
+// "/v1beta/openai" Gemini OpenAI-compat endpoint). When the base already
+// contains "/v1" we just append "/embeddings"; otherwise we add "/v1/embeddings".
+func embeddingsURL(base string) string {
+	if strings.Contains(base, "/v1") {
+		return base + "/embeddings"
+	}
+	return base + "/v1/embeddings"
 }
 
 type openaiResp struct {
@@ -210,17 +318,20 @@ func (o *OpenAI) EmbedBatch(ctx context.Context, texts []string) ([][]float32, e
 		if end > len(texts) {
 			end = len(texts)
 		}
-		body, err := json.Marshal(openaiReq{Model: o.Model, Input: texts[start:end]})
+		body, err := json.Marshal(openaiReq{Model: o.Model, Input: texts[start:end], Dimensions: EmbeddingDim})
 		if err != nil {
 			return nil, fmt.Errorf("marshal openai batch: %w", err)
 		}
-		req, err := http.NewRequestWithContext(ctx, "POST", o.BaseURL+"/v1/embeddings", bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, "POST", embeddingsURL(o.BaseURL), bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+o.APIKey)
-		resp, err := o.Client.Do(req)
+		if err := openaiPace(ctx); err != nil {
+			return nil, err
+		}
+		resp, err := doWithRetry(ctx, o.Client, req, body)
 		if err != nil {
 			return nil, err
 		}
@@ -251,17 +362,17 @@ func (o *OpenAI) EmbedBatch(ctx context.Context, texts []string) ([][]float32, e
 }
 
 func (o *OpenAI) Embed(ctx context.Context, text string) ([]float32, error) {
-	body, err := json.Marshal(openaiReq{Model: o.Model, Input: text})
+	body, err := json.Marshal(openaiReq{Model: o.Model, Input: text, Dimensions: EmbeddingDim})
 	if err != nil {
 		return nil, fmt.Errorf("marshal openai request: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, "POST", o.BaseURL+"/v1/embeddings", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", embeddingsURL(o.BaseURL), bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+o.APIKey)
-	resp, err := o.Client.Do(req)
+	resp, err := doWithRetry(ctx, o.Client, req, body)
 	if err != nil {
 		return nil, err
 	}

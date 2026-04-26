@@ -2,18 +2,27 @@
   "queries": [
     {
       "query": "go modules",
+      "category": "language-specific",
+      "description": "Tests retrieval of Go module documentation",
       "relevant": [
         "/go/02-modules.md"
-      ]
+      ],
+      "min_metrics": {
+        "MRR": 0.5
+      }
     },
     {
       "query": "rust ownership",
+      "category": "language-specific",
+      "description": "Tests retrieval of Rust ownership documentation",
       "relevant": [
         "/rust/01-ownership.md"
       ]
     },
     {
       "query": "python asyncio",
+      "category": "language-specific",
+      "description": "Tests retrieval of Python asyncio documentation",
       "relevant": [
         "/python/01-asyncio.md"
       ]
@@ -21,8 +30,26 @@
     {
       "query": "programación",
       "lang": "es",
+      "category": "cross-language",
+      "description": "Spanish query should match Spanish and Basque docs via shared stems",
       "relevant": [
         "/es/programacion-go.md"
+      ],
+      "variants": [
+        "programar",
+        "codificación"
+      ]
+    },
+    {
+      "query": "error handling",
+      "category": "cross-language",
+      "description": "Tests that error handling docs across languages are retrieved",
+      "relevant": [
+        "/go/errors.md",
+        "/rust/errors.md"
+      ],
+      "negative": [
+        "/python/decorators.md"
       ]
     }
   ]

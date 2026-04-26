@@ -18,14 +18,16 @@ import (
 
 func main() {
 	var (
-		dbPath   = flag.String("db", "marrow.db", "Path to SQLite database")
-		qrelsPath = flag.String("qrels", "", "Path to JSON qrels file")
+		dbPath     = flag.String("db", "marrow.db", "Path to SQLite database")
+		qrelsPath  = flag.String("qrels", "", "Path to JSON qrels file")
 		cutoffsStr = flag.String("k", "1,3,5,10", "Comma-separated cutoff values")
-		limit    = flag.Int("limit", 10, "Search limit per query")
-		provider = flag.String("provider", "mock", "Embedding provider (mock, ollama, openai)")
-		model    = flag.String("model", "", "Embedding model (provider-specific default if empty)")
-		baseURL  = flag.String("base_url", "", "Provider base URL")
-		apiKey   = flag.String("api_key", "", "API key for openai provider")
+		limit      = flag.Int("limit", 10, "Search limit per query")
+		provider   = flag.String("provider", "mock", "Embedding provider (mock, ollama, openai)")
+		model      = flag.String("model", "", "Embedding model (provider-specific default if empty)")
+		baseURL    = flag.String("base_url", "", "Provider base URL")
+		apiKey     = flag.String("api_key", "", "API key for openai provider")
+		format     = flag.String("format", "text", "Output format: text, json, md")
+		detail     = flag.Bool("detail", false, "Show per-query ranking details even for passing queries")
 	)
 	flag.Parse()
 
@@ -65,7 +67,7 @@ func main() {
 
 	engine := search.NewEngine(database, embedFn)
 	searchFn := func(ctx context.Context, query, lang string, limit int) ([]string, error) {
-		results, err := engine.Search(ctx, query, lang, limit, search.Filter{})
+		results, err := engine.Search(ctx, query, lang, limit, search.Filter{Lang: lang})
 		if err != nil {
 			return nil, err
 		}
@@ -82,13 +84,50 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
+	qrels = eval.ExpandVariants(qrels)
 	report, err := runner.RunAll(ctx, qrels)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "evaluation failed: %v\n", err)
 		os.Exit(1)
 	}
 
-	printReport(report, cutoffs)
+	passCount, failCount := 0, 0
+	for _, q := range report.Queries {
+		if len(q.FailureReasons) > 0 {
+			failCount++
+		} else {
+			passCount++
+		}
+	}
+
+	switch *format {
+	case "json":
+		b, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "marshal report: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(b))
+	case "md", "markdown":
+		opts := eval.TextOptions{
+			ShowDetail:     *detail,
+			ShowCategories: true,
+			Cutoffs:        cutoffs,
+		}
+		eval.WriteMarkdown(os.Stdout, report, opts)
+	default:
+		opts := eval.TextOptions{
+			ShowDetail:     *detail,
+			ShowCategories: true,
+			Cutoffs:        cutoffs,
+		}
+		eval.WriteText(os.Stdout, report, opts)
+	}
+
+	fmt.Printf("Summary: %d passed, %d failed out of %d queries\n", passCount, failCount, len(report.Queries))
+	if failCount > 0 {
+		os.Exit(2)
+	}
 }
 
 func parseCutoffs(s string) ([]int, error) {
@@ -120,46 +159,4 @@ func loadQrels(path string) ([]eval.QRel, error) {
 		return nil, err
 	}
 	return wrapper.Queries, nil
-}
-
-func printReport(r eval.Report, cutoffs []int) {
-	fmt.Println()
-	fmt.Println("=== Retrieval Evaluation Report ===")
-	fmt.Printf("Queries evaluated: %d\n\n", len(r.Queries))
-
-	// Per-query table
-	fmt.Println("Per-query results:")
-	fmt.Printf("%-24s", "Query")
-	for _, k := range cutoffs {
-		fmt.Printf(" P@%d", k)
-	}
-	for _, k := range cutoffs {
-		fmt.Printf(" R@%d", k)
-	}
-	fmt.Printf("  MRR    AP\n")
-
-	for _, q := range r.Queries {
-		trunc := q.Query
-		if len(trunc) > 22 {
-			trunc = trunc[:19] + "..."
-		}
-		fmt.Printf("%-24s", trunc)
-		for _, k := range cutoffs {
-			fmt.Printf(" %.3f", q.Precision[k])
-		}
-		for _, k := range cutoffs {
-			fmt.Printf(" %.3f", q.Recall[k])
-		}
-		fmt.Printf("  %.3f  %.3f\n", q.MRR, q.AP)
-	}
-
-	fmt.Println()
-	fmt.Println("Aggregate:")
-	for _, k := range cutoffs {
-		fmt.Printf("  Mean P@%d: %.4f  R@%d: %.4f  F1@%d: %.4f  NDCG@%d: %.4f\n",
-			k, r.MeanPrecision[k], k, r.MeanRecall[k], k, r.MeanF1[k], k, r.MeanNDCG[k])
-	}
-	fmt.Printf("  MRR:  %.4f\n", r.MRR)
-	fmt.Printf("  MAP:  %.4f\n", r.MAP)
-	fmt.Println()
 }

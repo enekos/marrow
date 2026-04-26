@@ -1,4 +1,4 @@
-.PHONY: build build-vps test clean run-sync run-serve landing eval eval-verbose eval-bench eval-cli eval-run
+.PHONY: build build-vps test clean run-sync run-serve landing eval eval-verbose eval-bench eval-cli eval-run eval-report eval-md
 
 # Eval defaults — override on the command line, e.g.
 #   make eval-run QRELS=path/to/qrels.json DB=marrow.db PROVIDER=ollama
@@ -10,6 +10,7 @@ BASE_URL ?=
 API_KEY  ?=
 CUTOFFS  ?= 1,3,5,10
 LIMIT    ?= 10
+FORMAT   ?= text
 
 build:
 	go build -tags sqlite_fts5 -o marrow .
@@ -40,6 +41,7 @@ eval-cli:
 
 # Run the standalone eval CLI against $(QRELS) using the index at $(DB).
 # Override PROVIDER/MODEL/BASE_URL/API_KEY to evaluate against real embedders.
+# Use FORMAT=md for Markdown output, DETAIL=1 for per-query ranking diffs.
 eval-run: eval-cli
 	./bin/eval \
 		-qrels $(QRELS) \
@@ -47,9 +49,31 @@ eval-run: eval-cli
 		-k $(CUTOFFS) \
 		-limit $(LIMIT) \
 		-provider $(PROVIDER) \
+		-format $(FORMAT) \
+		$(if $(DETAIL),-detail) \
 		$(if $(MODEL),-model $(MODEL)) \
 		$(if $(BASE_URL),-base_url $(BASE_URL)) \
 		$(if $(API_KEY),-api_key $(API_KEY))
+
+# Convenience: run the CLI against the in-tree fixture and print a text report.
+eval-report: eval-cli
+	./bin/eval \
+		-qrels internal/testdata/fixtures/qrels/sample.json \
+		-db $(DB) \
+		-k $(CUTOFFS) \
+		-limit $(LIMIT) \
+		-provider $(PROVIDER) \
+		-format text
+
+# Convenience: run the CLI and emit Markdown (good for CI/GitHub comments).
+eval-md: eval-cli
+	./bin/eval \
+		-qrels $(QRELS) \
+		-db $(DB) \
+		-k $(CUTOFFS) \
+		-limit $(LIMIT) \
+		-provider $(PROVIDER) \
+		-format md
 
 clean:
 	rm -f marrow marrow.db
