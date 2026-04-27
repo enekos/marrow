@@ -121,7 +121,7 @@
 
   // Copy install command
   let copied = $state(false);
-  const installCmd = 'curl -sSL https://raw.githubusercontent.com/enekos/marrow/main/install.sh | sh';
+  const installCmd = 'curl -sSL https://raw.githubusercontent.com/enekos/marrow/master/install.sh | sh';
   function copyCmd(cmd?: string) {
     navigator.clipboard.writeText(cmd ?? installCmd);
     copied = true;
@@ -472,7 +472,7 @@
           <p class="text-[#9090a0] text-sm mb-3">macOS &amp; Linux:</p>
           <button onclick={() => copyCmd(installCmd)} class="w-full text-left bg-black/40 border border-white/5 rounded-lg p-3 sm:p-4 font-mono text-xs sm:text-sm text-[#d0d0e0] overflow-x-auto hover:border-white/10 transition-colors flex items-center gap-3 group">
             <span class="text-[#ff4d6d] shrink-0">$</span>
-            <span class="flex-1 truncate">curl -sSL https://raw.githubusercontent.com/enekos/marrow/main/install.sh | sh</span>
+            <span class="flex-1 truncate">curl -sSL https://raw.githubusercontent.com/enekos/marrow/master/install.sh | sh</span>
             {#if copied}
               <Check size={14} class="text-green-400 shrink-0" />
             {:else}

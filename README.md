@@ -11,7 +11,7 @@ It can also index live GitHub issues and pull requests via a GitHub App, making 
 ### macOS & Linux — one-liner install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/enekos/marrow/main/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/enekos/marrow/master/install.sh | sh
 ```
 
 This downloads the latest release for your platform and copies the `marrow` binary into `~/.local/bin` (or `/usr/local/bin` if writable).
