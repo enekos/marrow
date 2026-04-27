@@ -1,4 +1,4 @@
-.PHONY: build build-vps test clean run-sync run-serve landing eval eval-verbose eval-bench eval-cli eval-run eval-report eval-md
+.PHONY: build build-vps build-linux-amd64 test clean run-sync run-serve landing eval eval-verbose eval-bench eval-cli eval-run eval-report eval-md
 
 # Eval defaults — override on the command line, e.g.
 #   make eval-run QRELS=path/to/qrels.json DB=marrow.db PROVIDER=ollama
@@ -17,6 +17,20 @@ build:
 
 build-vps:
 	go build -tags "sqlite_fts5 vps" -o marrow .
+
+# Cross-compile a Linux/amd64 binary with the vps build tag using zig as the
+# CGO toolchain (mirrors .github/workflows/release.yml). Output: dist/linux_amd64/marrow.
+# Requires: zig (0.13+) on PATH.
+build-linux-amd64:
+	@mkdir -p dist/linux_amd64 tmp_include
+	@SQLITE_MOD=$$(go env GOMODCACHE)/github.com/mattn/go-sqlite3@v1.14.42; \
+	cat "$$SQLITE_MOD/sqlite3-binding.h" > tmp_include/sqlite3.h
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+		CC="zig cc -target x86_64-linux-gnu -fno-sanitize=undefined" \
+		CGO_CFLAGS="-I$(CURDIR)/tmp_include -fno-sanitize=undefined" \
+		go build -tags "sqlite_fts5 vps" -ldflags="-s -w" -o dist/linux_amd64/marrow .
+	@rm -rf tmp_include
+	@echo "→ Built dist/linux_amd64/marrow"
 
 test:
 	go test -tags sqlite_fts5 ./...

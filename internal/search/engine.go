@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/enekos/marrow/internal/config"
 	"github.com/enekos/marrow/internal/db"
@@ -55,7 +56,7 @@ func DefaultConfig() Config {
 		FetchMultiplierFTS:   3,
 		FetchMultiplierVec:   10,
 		PhraseBoost:          1.10,
-		TitleBoostCoeff:      0.25,
+		TitleBoostCoeff:      0.5,
 		MaxChunksPerDoc:      3,
 		ChunkBoost2:          1.02,
 		ChunkBoost3Plus:      1.04,
@@ -160,6 +161,10 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	if err != nil {
 		return nil, err
 	}
+	ftsExpr := buildFTSMatchExpr(stemmedTokens)
+	if ftsExpr == "" {
+		ftsExpr = stemmedQuery
+	}
 
 	qblob, err := e.embedQuery(ctx, phrase, query)
 	if err != nil {
@@ -177,7 +182,7 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 
 	go func() {
 		defer wg.Done()
-		ftsRes, ftsErr = e.queryFTS(ctx, stemmedQuery, limit, filter.HighlightFormat)
+		ftsRes, ftsErr = e.queryFTS(ctx, ftsExpr, limit, filter.HighlightFormat)
 	}()
 
 	go func() {
@@ -684,6 +689,51 @@ func buildFilterSQL(f Filter) (string, []any) {
 		return "", nil
 	}
 	return strings.Join(parts, " AND "), args
+}
+
+// buildFTSMatchExpr produces a recall-friendly FTS5 MATCH expression from a
+// list of stemmed query tokens. Each token is sanitized (FTS5 syntax chars
+// stripped), wrapped as a quoted prefix term ("tok"*), and OR-joined. Returns
+// "" if no usable tokens remain — the caller should fall back to the raw
+// stemmed query.
+func buildFTSMatchExpr(stemmedTokens []string) string {
+	if len(stemmedTokens) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(stemmedTokens))
+	seen := make(map[string]struct{}, len(stemmedTokens))
+	for _, t := range stemmedTokens {
+		clean := sanitizeFTSToken(t)
+		if clean == "" {
+			continue
+		}
+		if _, ok := seen[clean]; ok {
+			continue
+		}
+		seen[clean] = struct{}{}
+		parts = append(parts, `"`+clean+`"*`)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	// Space-separated terms are ANDed by FTS5 — this preserves precision
+	// while quoted-prefix terms ("tok"*) widen recall to handle morphology
+	// the stemmer didn't normalize.
+	return strings.Join(parts, " ")
+}
+
+// sanitizeFTSToken strips characters that have special meaning in FTS5 MATCH
+// expressions so a stemmed token can be safely embedded as a quoted prefix
+// term. We keep letters, digits, and underscore; anything else is dropped.
+func sanitizeFTSToken(t string) string {
+	var b strings.Builder
+	b.Grow(len(t))
+	for _, r := range t {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func stripOuterQuotes(s string) string {

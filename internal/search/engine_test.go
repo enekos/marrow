@@ -438,25 +438,25 @@ func TestTitleBoost(t *testing.T) {
 			name:          "full match",
 			stemmedTitle:  "go modul tutori",
 			stemmedTokens: []string{"go", "modul", "tutori"},
-			want:          1.25,
+			want:          1.0 + DefaultConfig().TitleBoostCoeff*1.0,
 		},
 		{
 			name:          "partial match",
 			stemmedTitle:  "go modul guid",
 			stemmedTokens: []string{"go", "modul", "tutori"},
-			want:          1.0 + 0.25*(2.0/3.0),
+			want:          1.0 + DefaultConfig().TitleBoostCoeff*(2.0/3.0),
 		},
 		{
 			name:          "duplicate tokens in title counted once",
 			stemmedTitle:  "go go go",
 			stemmedTokens: []string{"go", "modul"},
-			want:          1.0 + 0.25*(1.0/2.0),
+			want:          1.0 + DefaultConfig().TitleBoostCoeff*(1.0/2.0),
 		},
 		{
 			name:          "duplicate tokens in query counted once",
 			stemmedTitle:  "go modul tutori",
 			stemmedTokens: []string{"go", "go", "go"},
-			want:          1.0 + 0.25*(1.0/3.0),
+			want:          1.0 + DefaultConfig().TitleBoostCoeff*(1.0/3.0),
 		},
 	}
 

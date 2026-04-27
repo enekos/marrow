@@ -76,8 +76,9 @@ func TestIndex_InsertAndUpdate(t *testing.T) {
 	if err := database.QueryRow(`SELECT title FROM documents_fts WHERE rowid = (SELECT id FROM documents WHERE path = ?)`, doc.Path).Scan(&ftsTitle); err != nil {
 		t.Fatalf("select fts title: %v", err)
 	}
-	if ftsTitle != "Updated Go Notes" {
-		t.Fatalf("expected fts title updated, got %s", ftsTitle)
+	// FTS title is stemmed (raw title lives in documents.title).
+	if ftsTitle != "updat go note" {
+		t.Fatalf("expected stemmed fts title %q, got %q", "updat go note", ftsTitle)
 	}
 }
 

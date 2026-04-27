@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/enekos/marrow/internal/db"
+	"github.com/enekos/marrow/internal/stemmer"
 )
 
 // Chunk is one embedded passage of a document. Chunks are what vector
@@ -129,9 +130,12 @@ func IndexTx(ctx context.Context, tx TxExec, doc Document) error {
 		}
 	}
 
+	// FTS title must be stemmed to match stemmed query tokens. The raw title
+	// remains in documents.title for display.
+	stemmedTitle := stemmer.StemText(doc.Title, doc.Lang)
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO documents_fts (rowid, title, content) VALUES (?, ?, ?)`,
-		rowid, doc.Title, doc.StemmedText); err != nil {
+		rowid, stemmedTitle, doc.StemmedText); err != nil {
 		return fmt.Errorf("insert fts: %w", err)
 	}
 

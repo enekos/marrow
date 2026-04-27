@@ -4,6 +4,8 @@ Marrow is a local-first, hybrid search engine for Markdown repositories. It comb
 
 It can also index live GitHub issues and pull requests via a GitHub App, making them searchable alongside your documentation.
 
+**🔍 [Visit the website](https://enekos.github.io/marrow/)** for a plain-English overview, quick start, and live demo.
+
 ## Installation (no Go required)
 
 ### macOS & Linux — one-liner install

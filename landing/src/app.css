@@ -70,7 +70,20 @@ body {
 .terminal-line {
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
   animation: typing 0.4s steps(40, end);
+}
+
+@media (max-width: 640px) {
+  .terminal-line {
+    white-space: normal;
+    word-break: break-word;
+  }
+}
+
+/* Prevent inline code from overflowing on narrow screens */
+code {
+  word-break: break-word;
 }
 
 @keyframes typing {

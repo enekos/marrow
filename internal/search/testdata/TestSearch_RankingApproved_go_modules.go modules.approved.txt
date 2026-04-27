@@ -1,19 +1,19 @@
 [
   {
     "title": "Go Modules Guide",
-    "score": 0.253016
+    "score": 0.217182
   },
   {
     "title": "Go Introduction",
-    "score": 0.055695
+    "score": 0.061883
   },
   {
     "title": "Go Best Practices",
-    "score": 0.055417
+    "score": 0.061574
   },
   {
     "title": "Old Go Tutorial",
-    "score": 0.053285
+    "score": 0.059205
   },
   {
     "title": "Python AsyncIO",

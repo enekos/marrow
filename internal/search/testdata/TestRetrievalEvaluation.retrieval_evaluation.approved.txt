@@ -9,11 +9,11 @@ programación                  1.00  1.00  1.00  0.50  1.00  1.00  ✓
 concurrencia                  1.00  0.67  0.40  0.20  1.00  1.00  ✓
 error handling                1.00  0.67  0.40  0.20  1.00  1.00  ✓
 testing                       1.00  1.00  0.60  0.30  1.00  1.00  ✓
-async                         1.00  0.67  0.40  0.20  1.00  1.00  ✓
+async                         1.00  0.67  0.40  0.20  1.00  0.83  ✓
 performance                   1.00  0.67  0.40  0.20  1.00  1.00  ✓
 memory safety                 1.00  0.33  0.20  0.10  1.00  1.00  ✓
 concurrencia                  1.00  1.00  0.60  0.40  1.00  0.86  ✓
-Category mean                 1.00  0.78  0.53  0.28  1.00  0.98
+Category mean                 1.00  0.78  0.53  0.28  1.00  0.96
 
 --- Category: edge-case (5 queries) ---
 Query                         P@1   P@3   P@5   P@10  MRR   AP    ✓/✗
@@ -52,7 +52,7 @@ Category mean                 1.00  0.70  0.58  0.45  1.00  0.90
 --- Category: negative (5 queries) ---
 Query                         P@1   P@3   P@5   P@10  MRR   AP    ✓/✗
 ────────────────────────────  ────  ────  ────  ────  ────  ────  ───
-rust                          0.00  0.00  0.40  0.50  0.25  0.46  ✓
+rust                          0.00  0.00  0.40  0.50  0.25  0.44  ✓
 database                      1.00  0.33  0.20  0.10  1.00  1.00  ✓
 go                            1.00  0.67  0.60  0.70  1.00  0.74  ✓
 python decorators             1.00  0.33  0.20  0.10  1.00  1.00  ✓
@@ -80,27 +80,27 @@ rust ownership                1.00  0.67  0.60  0.30  1.00  0.92  ✓
 rust borrow checker           1.00  0.67  0.40  0.20  1.00  1.00  ✓
 rust memory ownership         1.00  0.33  0.40  0.20  1.00  0.75  ✓
 python data science           1.00  0.67  0.40  0.30  1.00  0.68  ✓
-python pandas                 1.00  0.33  0.20  0.30  1.00  0.59  ✓
+python pandas                 1.00  0.67  0.40  0.30  1.00  0.81  ✓
 python data analysis          1.00  0.33  0.40  0.30  1.00  0.62  ✓
-Category mean                 1.00  0.44  0.36  0.23  1.00  0.77
+Category mean                 1.00  0.48  0.38  0.23  1.00  0.80
 
 ✓ All queries passed their thresholds and constraints.
 
 Aggregate:
   Mean P@1: 0.938  R@1: 0.425  F1@1: 0.527  NDCG@1: 0.938  HR@1: 0.938
-  Mean P@3: 0.549  R@3: 0.590  F1@3: 0.495  NDCG@3: 0.773  HR@3: 0.958
-  Mean P@5: 0.425  R@5: 0.677  F1@5: 0.454  NDCG@5: 0.779  HR@5: 0.979
-  Mean P@10: 0.285  R@10: 0.785  F1@10: 0.368  NDCG@10: 0.802  HR@10: 0.979
+  Mean P@3: 0.556  R@3: 0.597  F1@3: 0.502  NDCG@3: 0.777  HR@3: 0.958
+  Mean P@5: 0.429  R@5: 0.684  F1@5: 0.460  NDCG@5: 0.784  HR@5: 0.979
+  Mean P@10: 0.285  R@10: 0.785  F1@10: 0.368  NDCG@10: 0.803  HR@10: 0.979
   MRR:  0.9531
-  MAP:  0.8820
-  RPrec:0.6581
+  MAP:  0.8829
+  RPrec:0.6651
 
 Per-category summary:
-  cross-language          MAP: 0.979  MRR: 1.000  pass: 9/9  ✓
+  cross-language          MAP: 0.960  MRR: 1.000  pass: 9/9  ✓
   edge-case               MAP: 0.800  MRR: 0.800  pass: 5/5  ✓
   lang-filtered           MAP: 1.000  MRR: 1.000  pass: 3/3  ✓
   language-specific       MAP: 0.900  MRR: 1.000  pass: 11/11  ✓
-  negative                MAP: 0.839  MRR: 0.850  pass: 5/5  ✓
+  negative                MAP: 0.836  MRR: 0.850  pass: 5/5  ✓
   semantic                MAP: 0.917  MRR: 0.917  pass: 6/6  ✓
-  variants                MAP: 0.771  MRR: 1.000  pass: 9/9  ✓
+  variants                MAP: 0.795  MRR: 1.000  pass: 9/9  ✓
 
