@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -171,6 +172,9 @@ func TestHandleSearch_InvalidJSON(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
 	}
+	if !strings.Contains(rr.Body.String(), "bad request") {
+		t.Errorf("body = %q, want bad request", rr.Body.String())
+	}
 }
 
 func TestHandleSearch_EmptyQuery(t *testing.T) {
@@ -195,6 +199,62 @@ func TestHandleSearch_EmptyQuery(t *testing.T) {
 	}
 	if len(resp.Results) != 0 {
 		t.Errorf("results count = %d, want 0", len(resp.Results))
+	}
+}
+
+func TestHandleSearch_QueryTooLong(t *testing.T) {
+	srv, database := setupTestServer(t)
+	defer database.Close()
+
+	body := fmt.Sprintf(`{"q":"%s","limit":10}`, strings.Repeat("a", maxQueryLength+1))
+	req := httptest.NewRequest(http.MethodPost, "/search", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.handleSearch(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(rr.Body.String(), "query too long") {
+		t.Errorf("body = %q, want query too long", rr.Body.String())
+	}
+}
+
+func TestHandleSearch_MaxLimitEnforced(t *testing.T) {
+	srv, database := setupTestServer(t)
+	defer database.Close()
+	seedDocs(t, database)
+
+	body := fmt.Sprintf(`{"q":"hello","limit":%d}`, maxSearchLimit+50)
+	req := httptest.NewRequest(http.MethodPost, "/search", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.handleSearch(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body = %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	// Should succeed but be capped internally; we just verify it doesn't crash.
+}
+
+func TestHandleSearch_BodyTooLarge(t *testing.T) {
+	srv, database := setupTestServer(t)
+	defer database.Close()
+
+	// Create a valid JSON body that exceeds 1MB so MaxBytesReader triggers.
+	hugeQuery := strings.Repeat("a", 1024*1024+100)
+	body := fmt.Sprintf(`{"q":"%s"}`, hugeQuery)
+	req := httptest.NewRequest(http.MethodPost, "/search", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Body = http.MaxBytesReader(httptest.NewRecorder(), req.Body, 1024*1024)
+	rr := httptest.NewRecorder()
+	srv.handleSearch(rr, req)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusRequestEntityTooLarge)
+	}
+	if !strings.Contains(rr.Body.String(), "request body too large") {
+		t.Errorf("body = %q, want request body too large", rr.Body.String())
 	}
 }
 

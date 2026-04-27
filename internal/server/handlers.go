@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -68,6 +69,11 @@ func (s *Server) handleFacets(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(facets)
 }
 
+const (
+	maxQueryLength = 2000
+	maxSearchLimit = 100
+)
+
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Query           string `json:"q"`
@@ -78,11 +84,23 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		HighlightFormat string `json:"highlight_format"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Bad Request", http.StatusBadRequest)
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			http.Error(w, `{"error":"request body too large"}`, http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, `{"error":"bad request"}`, http.StatusBadRequest)
 		return
 	}
 	if req.Limit <= 0 {
 		req.Limit = 10
+	}
+	if req.Limit > maxSearchLimit {
+		req.Limit = maxSearchLimit
+	}
+	if len(req.Query) > maxQueryLength {
+		http.Error(w, `{"error":"query too long"}`, http.StatusBadRequest)
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)

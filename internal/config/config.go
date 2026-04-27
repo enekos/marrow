@@ -53,10 +53,15 @@ type SiteConfig struct {
 }
 
 type ServerConfig struct {
-	Addr         string `mapstructure:"addr"`
-	DB           string `mapstructure:"db"`
-	LogFormat    string `mapstructure:"log_format"`
-	SyncInterval string `mapstructure:"sync_interval"`
+	Addr               string   `mapstructure:"addr"`
+	DB                 string   `mapstructure:"db"`
+	LogFormat          string   `mapstructure:"log_format"`
+	SyncInterval       string   `mapstructure:"sync_interval"`
+	APIKey             string   `mapstructure:"api_key"`
+	RateLimitRPS       float64  `mapstructure:"rate_limit_rps"`
+	RateLimitSearchRPS float64  `mapstructure:"rate_limit_search_rps"`
+	MaxBodySize        int64    `mapstructure:"max_body_size"`
+	CORSOrigins        []string `mapstructure:"cors_origins"`
 }
 
 type GitHubConfig struct {
@@ -149,6 +154,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.db", "marrow.db")
 	v.SetDefault("server.log_format", "text")
 	v.SetDefault("server.sync_interval", "15m")
+	v.SetDefault("server.api_key", "")
+	v.SetDefault("server.rate_limit_rps", float64(0))
+	v.SetDefault("server.rate_limit_search_rps", float64(0))
+	v.SetDefault("server.max_body_size", int64(0))
+	v.SetDefault("server.cors_origins", []string{})
 
 	// GitHub
 	v.SetDefault("github.repo_url", "")

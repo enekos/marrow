@@ -16,10 +16,15 @@ func TestLoad_Defaults(t *testing.T) {
 
 	want := &Config{
 		Server: ServerConfig{
-			Addr:         ":8080",
-			DB:           "marrow.db",
-			LogFormat:    "text",
-			SyncInterval: "15m",
+			Addr:               ":8080",
+			DB:                 "marrow.db",
+			LogFormat:          "text",
+			SyncInterval:       "15m",
+			APIKey:             "",
+			RateLimitRPS:       0,
+			RateLimitSearchRPS: 0,
+			MaxBodySize:        0,
+			CORSOrigins:        []string{},
 		},
 		GitHub: GitHubConfig{
 			RepoURL:   "",

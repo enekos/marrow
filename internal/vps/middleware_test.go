@@ -3,7 +3,9 @@
 package vps
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +16,29 @@ import (
 	"github.com/enekos/marrow/internal/config"
 	"github.com/enekos/marrow/internal/server"
 )
+
+func TestSecurityHeadersMiddleware(t *testing.T) {
+	handler := securityHeadersMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if got := rr.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+	if got := rr.Header().Get("X-Frame-Options"); got != "DENY" {
+		t.Errorf("X-Frame-Options = %q, want DENY", got)
+	}
+	if got := rr.Header().Get("Referrer-Policy"); got != "strict-origin-when-cross-origin" {
+		t.Errorf("Referrer-Policy = %q, want strict-origin-when-cross-origin", got)
+	}
+}
 
 func TestSiteResolution(t *testing.T) {
 	cfg := &config.Config{
@@ -77,12 +102,12 @@ func TestCorsMiddleware(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		origin       string
-		site         *config.SiteConfig
-		wantStatus   int
-		wantOrigin   string
-		wantCORS     bool
+		name       string
+		origin     string
+		site       *config.SiteConfig
+		wantStatus int
+		wantOrigin string
+		wantCORS   bool
 	}{
 		{"allowed origin", "https://blog.com", &cfg.Sites[0], http.StatusOK, "https://blog.com", true},
 		{"allowed origin www", "https://www.blog.com", &cfg.Sites[0], http.StatusOK, "https://www.blog.com", true},
@@ -125,8 +150,44 @@ func TestCorsMiddleware(t *testing.T) {
 	}
 }
 
+func TestCorsMiddleware_GlobalOrigins(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			CORSOrigins: []string{"https://app.com"},
+		},
+	}
+
+	handler := corsMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	t.Run("allowed global origin", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Origin", "https://app.com")
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
+		}
+		if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "https://app.com" {
+			t.Errorf("Access-Control-Allow-Origin = %q, want https://app.com", got)
+		}
+	})
+
+	t.Run("disallowed global origin", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Origin", "https://evil.com")
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+		}
+	})
+}
+
 func TestAuthMiddleware(t *testing.T) {
-	handler := authMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	cfg := &config.Config{}
+	handler := authMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -163,8 +224,49 @@ func TestAuthMiddleware(t *testing.T) {
 	}
 }
 
+func TestAuthMiddleware_GlobalKey(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{APIKey: "global-secret"},
+	}
+	handler := authMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	t.Run("valid global key", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/search", nil)
+		req.Header.Set("Authorization", "Bearer global-secret")
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
+		}
+	})
+
+	t.Run("invalid global key", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/search", nil)
+		req.Header.Set("Authorization", "Bearer wrong")
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("site key overrides global", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/search", nil)
+		req = req.WithContext(server.WithSite(req.Context(), &config.SiteConfig{APIKey: "site-secret"}))
+		req.Header.Set("Authorization", "Bearer site-secret")
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
+		}
+	})
+}
+
 func TestRateLimitMiddleware(t *testing.T) {
-	handler := rateLimitMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	cfg := &config.Config{}
+	handler := rateLimitMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -183,7 +285,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 
 	t.Run("exceeds limit", func(t *testing.T) {
 		// Create a new handler so we get a fresh limiter.
-		h := rateLimitMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := rateLimitMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
@@ -202,6 +304,116 @@ func TestRateLimitMiddleware(t *testing.T) {
 			}
 		}
 		// If we never got rate limited with 0.001 RPS, that's odd but not a hard failure.
+	})
+}
+
+func TestRateLimitMiddleware_IPBasedSearch(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			RateLimitSearchRPS: 2,
+		},
+	}
+	handler := rateLimitMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	t.Run("within search limit", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/search", nil)
+		req.RemoteAddr = "192.168.1.1:1234"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
+		}
+	})
+
+	t.Run("exceeds search limit", func(t *testing.T) {
+		// Burst is 5 for RPS=2, so 6th request should be rate limited.
+		for i := 0; i < 10; i++ {
+			req := httptest.NewRequest(http.MethodPost, "/search", nil)
+			req.RemoteAddr = "192.168.1.2:1234"
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+			if i < 5 && rr.Code != http.StatusOK {
+				t.Fatalf("request %d status = %d, want %d", i, rr.Code, http.StatusOK)
+			}
+			if i == 5 && rr.Code == http.StatusTooManyRequests {
+				return
+			}
+		}
+		t.Error("expected rate limiting to trigger after burst")
+	})
+
+	t.Run("non-search not limited", func(t *testing.T) {
+		for i := 0; i < 10; i++ {
+			req := httptest.NewRequest(http.MethodGet, "/health", nil)
+			req.RemoteAddr = "192.168.1.3:1234"
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("request %d status = %d, want %d", i, rr.Code, http.StatusOK)
+			}
+		}
+	})
+}
+
+func TestRateLimitMiddleware_GlobalFallback(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			RateLimitRPS: 1,
+		},
+	}
+	handler := rateLimitMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	t.Run("search uses global when no search-specific limit", func(t *testing.T) {
+		for i := 0; i < 10; i++ {
+			req := httptest.NewRequest(http.MethodPost, "/search", nil)
+			req.RemoteAddr = "192.168.1.4:1234"
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+			if i < 5 && rr.Code != http.StatusOK {
+				t.Fatalf("request %d status = %d, want %d", i, rr.Code, http.StatusOK)
+			}
+			if i == 5 && rr.Code == http.StatusTooManyRequests {
+				return
+			}
+		}
+		t.Error("expected rate limiting to trigger after burst")
+	})
+}
+
+func TestBodyLimitMiddleware(t *testing.T) {
+	handler := bodyLimitMiddleware(100)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Read body so MaxBytesReader can enforce the limit.
+		_, err := io.Copy(io.Discard, r.Body)
+		if err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				http.Error(w, `{"error":"request body too large"}`, http.StatusRequestEntityTooLarge)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	t.Run("within limit", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("small"))
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
+		}
+	})
+
+	t.Run("exceeds limit", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(strings.Repeat("x", 200)))
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusRequestEntityTooLarge {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusRequestEntityTooLarge)
+		}
 	})
 }
 
@@ -298,10 +510,12 @@ func TestVPSIntegration(t *testing.T) {
 
 	// Apply the same middlewares Setup would apply.
 	stack := middlewareChain(
+		securityHeadersMiddleware(),
 		siteResolution(cfg),
 		corsMiddleware(cfg),
-		authMiddleware(),
-		rateLimitMiddleware(),
+		authMiddleware(cfg),
+		rateLimitMiddleware(cfg),
+		bodyLimitMiddleware(1024*1024),
 		requestLogMiddleware(logger),
 	)
 	handler := stack(inner)
@@ -319,6 +533,9 @@ func TestVPSIntegration(t *testing.T) {
 		}
 		if !strings.Contains(rr.Body.String(), "site=blog") {
 			t.Errorf("body = %q, want site=blog", rr.Body.String())
+		}
+		if rr.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Error("expected security headers to be set")
 		}
 	})
 
