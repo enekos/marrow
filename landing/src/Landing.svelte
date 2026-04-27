@@ -246,7 +246,6 @@
           <span class="inline-block min-w-[7ch]">{heroTitle}</span> <br/>
           <span class="bg-clip-text text-transparent bg-gradient-to-r from-[#ff4d6d] to-[#7c3aed]">in your Markdown</span>
           <br/>
-          <span class="inline-block min-w-[12ch] text-white/90 text-3xl sm:text-4xl md:text-5xl">{heroSubtitle}</span>
         </h1>
         <p class="text-base sm:text-lg text-[#a0a0b0] max-w-xl mx-auto lg:mx-0 leading-relaxed">
           Marrow is a tiny search engine you run on your own machine. Point it at a folder of notes, docs, or a GitHub repo — then search by keyword <em>or</em> by meaning. Everything lives in one SQLite file. No cloud, no account, no telemetry.
@@ -540,7 +539,7 @@
           <ChevronDown size={18} class="text-[#7a7a8a] transition-transform shrink-0 {openSection === 'architecture' ? 'rotate-180' : ''}" />
         </button>
         {#if openSection === 'architecture'}
-          <div class="px-5 sm:px-6 pb-5 sm:pb-6 text-[#b0b0c0] text-sm leading-relaxed space-y-4">
+          <div class="px-5 sm:px-6 pt-5 sm:pt-6 pb-5 sm:pb-6 text-[#b0b0c0] text-sm leading-relaxed space-y-4">
             <p>Marrow stores everything in a single SQLite database with three core tables:</p>
             <ul class="list-disc pl-5 space-y-1">
               <li><strong class="text-white">documents</strong> — metadata (path, hash, title, lang, source, doc_type).</li>
@@ -562,7 +561,7 @@
           <ChevronDown size={18} class="text-[#7a7a8a] transition-transform shrink-0 {openSection === 'searchlogic' ? 'rotate-180' : ''}" />
         </button>
         {#if openSection === 'searchlogic'}
-          <div class="px-5 sm:px-6 pb-5 sm:pb-6 text-[#b0b0c0] text-sm leading-relaxed space-y-4">
+          <div class="px-5 sm:px-6 pt-5 sm:pt-6 pb-5 sm:pb-6 text-[#b0b0c0] text-sm leading-relaxed space-y-4">
             <p>Search is not a simple keyword lookup. Marrow applies several layers of ranking:</p>
             <ol class="list-decimal pl-5 space-y-2">
               <li><strong class="text-white">Stemming &amp; language detection</strong> — Queries are stemmed using pure-Go Snowball stemmers (English Porter2, Spanish, Basque). If no language hint is provided, Marrow auto-detects it from character patterns and stopword frequencies.</li>
@@ -586,7 +585,7 @@
           <ChevronDown size={18} class="text-[#7a7a8a] transition-transform shrink-0 {openSection === 'sync' ? 'rotate-180' : ''}" />
         </button>
         {#if openSection === 'sync'}
-          <div class="px-5 sm:px-6 pb-5 sm:pb-6 text-[#b0b0c0] text-sm leading-relaxed space-y-4">
+          <div class="px-5 sm:px-6 pt-5 sm:pt-6 pb-5 sm:pb-6 text-[#b0b0c0] text-sm leading-relaxed space-y-4">
             <p>Marrow supports three source types, each with incremental sync behavior:</p>
             <ul class="list-disc pl-5 space-y-2">
               <li><strong class="text-white">Local directories</strong> — The watcher crawls the tree and uses <code>mtime</code> as a fast-path filter. Otherwise, the file is read and its SHA-256 hash is compared to the stored hash. Deleted files are removed automatically.</li>
@@ -607,7 +606,7 @@
           <ChevronDown size={18} class="text-[#7a7a8a] transition-transform shrink-0 {openSection === 'embeddings' ? 'rotate-180' : ''}" />
         </button>
         {#if openSection === 'embeddings'}
-          <div class="px-5 sm:px-6 pb-5 sm:pb-6 text-[#b0b0c0] text-sm leading-relaxed space-y-4">
+          <div class="px-5 sm:px-6 pt-5 sm:pt-6 pb-5 sm:pb-6 text-[#b0b0c0] text-sm leading-relaxed space-y-4">
             <p>Marrow abstracts embeddings behind a simple <code>Func</code> interface. Three providers are supported:</p>
             <ul class="list-disc pl-5 space-y-2">
               <li><strong class="text-white">mock</strong> — Deterministic 384-dim vectors derived from SHA-256 (Box-Muller). Zero-config, fully offline, reproducible. Great for CI and tests.</li>
@@ -628,7 +627,7 @@
           <ChevronDown size={18} class="text-[#7a7a8a] transition-transform shrink-0 {openSection === 'config' ? 'rotate-180' : ''}" />
         </button>
         {#if openSection === 'config'}
-          <div class="px-5 sm:px-6 pb-5 sm:pb-6 text-[#b0b0c0] text-sm leading-relaxed space-y-4">
+          <div class="px-5 sm:px-6 pt-5 sm:pt-6 pb-5 sm:pb-6 text-[#b0b0c0] text-sm leading-relaxed space-y-4">
             <p>Marrow uses a four-layer configuration cascade (later layers override earlier ones):</p>
             <ol class="list-decimal pl-5 space-y-1">
               <li>Hardcoded defaults</li>
@@ -674,7 +673,7 @@ local_path = "./repo/wiki"</pre>
           <ChevronDown size={18} class="text-[#7a7a8a] transition-transform shrink-0 {openSection === 'cli' ? 'rotate-180' : ''}" />
         </button>
         {#if openSection === 'cli'}
-          <div class="px-5 sm:px-6 pb-5 sm:pb-6 text-[#b0b0c0] text-sm leading-relaxed space-y-4">
+          <div class="px-5 sm:px-6 pt-5 sm:pt-6 pb-5 sm:pb-6 text-[#b0b0c0] text-sm leading-relaxed space-y-4">
             <ul class="space-y-3">
               <li>
                 <code class="text-white bg-white/10 px-1.5 py-0.5 rounded">marrow sync</code>
@@ -710,7 +709,7 @@ local_path = "./repo/wiki"</pre>
           <ChevronDown size={18} class="text-[#7a7a8a] transition-transform shrink-0 {openSection === 'api' ? 'rotate-180' : ''}" />
         </button>
         {#if openSection === 'api'}
-          <div class="px-5 sm:px-6 pb-5 sm:pb-6 text-[#b0b0c0] text-sm leading-relaxed space-y-4">
+          <div class="px-5 sm:px-6 pt-5 sm:pt-6 pb-5 sm:pb-6 text-[#b0b0c0] text-sm leading-relaxed space-y-4">
             <div class="space-y-3">
               <div>
                 <div class="font-mono text-xs text-[#ff4d6d] mb-1">POST /search</div>
