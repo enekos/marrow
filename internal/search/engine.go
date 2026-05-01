@@ -118,6 +118,9 @@ type Engine struct {
 	cfg         Config
 	DetectLang  bool
 	DefaultLang string
+	ftsSQL      string   // precompiled FTS query template
+	vecSQL      string   // precompiled vector query
+	metaSQLTmpl string   // metadata query template up to the IN clause
 }
 
 // NewEngine creates a search engine with default configuration.
@@ -137,12 +140,34 @@ func NewEngineWithConfig(database DBConn, embedFn embed.Func, cfg *Config) *Engi
 	if cfg != nil {
 		c = *cfg
 	}
+	ftsSQL := fmt.Sprintf(
+		`SELECT rowid, bm25(documents_fts, %g, %g), snippet(documents_fts, 1, ?, ?, '…', %d) `+
+			`FROM documents_fts WHERE documents_fts MATCH ? ORDER BY bm25(documents_fts, %g, %g) LIMIT ?`,
+		c.BM25TitleWeight, c.BM25ContentWeight, c.SnippetMaxTokens,
+		c.BM25TitleWeight, c.BM25ContentWeight,
+	)
+	vecSQL := `
+		SELECT c.document_id, v.distance, c.text
+		FROM (
+			SELECT rowid, distance
+			FROM documents_vec
+			WHERE embedding MATCH ?
+			ORDER BY distance
+			LIMIT ?
+		) v
+		JOIN document_chunks c ON c.id = v.rowid
+		ORDER BY v.distance
+	`
+	metaSQLTmpl := `SELECT id, path, title, lang, doc_type, source, last_modified FROM documents WHERE id IN (`
 	return &Engine{
 		db:          database,
 		embedFn:     embedFn,
 		cfg:         c,
 		DetectLang:  true,
 		DefaultLang: config.DefaultLang,
+		ftsSQL:      ftsSQL,
+		vecSQL:      vecSQL,
+		metaSQLTmpl: metaSQLTmpl,
 	}
 }
 
@@ -302,13 +327,7 @@ func (e *Engine) queryFTS(ctx context.Context, stemmedQuery string, limit int, h
 		closeMark = highlightCloseSentinel
 	}
 
-	ftsSQL := fmt.Sprintf(
-		`SELECT rowid, bm25(documents_fts, %g, %g), snippet(documents_fts, 1, ?, ?, '…', %d) `+
-			`FROM documents_fts WHERE documents_fts MATCH ? ORDER BY bm25(documents_fts, %g, %g) LIMIT ?`,
-		e.cfg.BM25TitleWeight, e.cfg.BM25ContentWeight, e.cfg.SnippetMaxTokens,
-		e.cfg.BM25TitleWeight, e.cfg.BM25ContentWeight,
-	)
-	rows, err := e.db.QueryContext(ctx, ftsSQL, openMark, closeMark, stemmedQuery, limit*e.cfg.FetchMultiplierFTS)
+	rows, err := e.db.QueryContext(ctx, e.ftsSQL, openMark, closeMark, stemmedQuery, limit*e.cfg.FetchMultiplierFTS)
 	if err != nil {
 		return nil, fmt.Errorf("fts query: %w", err)
 	}
@@ -360,19 +379,7 @@ type vecInfo struct {
 }
 
 func (e *Engine) queryVectors(ctx context.Context, qblob []byte, limit int) (*vecResult, error) {
-	vecSQL := `
-		SELECT c.document_id, v.distance, c.text
-		FROM (
-			SELECT rowid, distance
-			FROM documents_vec
-			WHERE embedding MATCH ?
-			ORDER BY distance
-			LIMIT ?
-		) v
-		JOIN document_chunks c ON c.id = v.rowid
-		ORDER BY v.distance
-	`
-	rows, err := e.db.QueryContext(ctx, vecSQL, qblob, limit*e.cfg.FetchMultiplierVec)
+	rows, err := e.db.QueryContext(ctx, e.vecSQL, qblob, limit*e.cfg.FetchMultiplierVec)
 	if err != nil {
 		return nil, fmt.Errorf("vec query: %w", err)
 	}
@@ -502,10 +509,7 @@ func (e *Engine) fetchMetadata(ctx context.Context, docs []scoredDoc, filterSQL 
 		args[i] = d.id
 	}
 
-	q := fmt.Sprintf(
-		`SELECT id, path, title, lang, doc_type, source, last_modified FROM documents WHERE id IN (%s)`,
-		strings.Join(placeholders, ","),
-	)
+	q := e.metaSQLTmpl + strings.Join(placeholders, ",") + `)`
 	if filterSQL != "" {
 		q += " AND " + filterSQL
 		args = append(args, filterArgs...)
