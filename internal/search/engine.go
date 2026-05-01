@@ -391,11 +391,12 @@ func (e *Engine) queryVectors(ctx context.Context, qblob []byte, limit int) (*ve
 	}
 	defer rows.Close()
 
+	capacity := limit * e.cfg.FetchMultiplierVec
 	res := &vecResult{
-		infos:         make(map[int64]vecInfo, limit*e.cfg.FetchMultiplierVec),
-		bestChunkText: make(map[int64]string),
-		docChunks:     make(map[int64][]string),
-		order:         make([]int64, 0, limit*e.cfg.FetchMultiplierVec),
+		infos:         make(map[int64]vecInfo, capacity),
+		bestChunkText: make(map[int64]string, capacity),
+		docChunks:     make(map[int64][]string, capacity),
+		order:         make([]int64, 0, capacity),
 	}
 	rank := 1
 	for rows.Next() {
