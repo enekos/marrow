@@ -429,6 +429,11 @@ func (e *Engine) detectPhraseMatches(ctx context.Context, phrase string, limit i
 	if phrase == "" {
 		return map[int64]struct{}{}, nil
 	}
+	// Single-word queries cannot benefit from phrase detection; skip the
+	// extra FTS round-trip.
+	if len(strings.Fields(phrase)) <= 1 {
+		return map[int64]struct{}{}, nil
+	}
 	ftsPhrase := `"` + strings.ReplaceAll(phrase, `"`, ``) + `"`
 	rows, err := e.db.QueryContext(ctx,
 		`SELECT rowid FROM documents_fts WHERE documents_fts MATCH ? LIMIT ?`,
