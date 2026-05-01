@@ -402,21 +402,25 @@ func (ie *instrumentedEngine) Search(ctx context.Context, query string, langHint
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	t0 = time.Now()
 	go func() {
 		defer wg.Done()
+		t0 := time.Now()
 		ftsRes, ftsErr = ie.queryFTS(ctx, ftsExpr, limit, filter.HighlightFormat)
+		ie.mu.Lock()
+		ie.ftsTime += time.Since(t0)
+		ie.mu.Unlock()
 	}()
 
-	t1 := time.Now()
 	go func() {
 		defer wg.Done()
+		t0 := time.Now()
 		vecRes, vecErr = ie.queryVectors(ctx, qblob, limit)
+		ie.mu.Lock()
+		ie.vecTime += time.Since(t0)
+		ie.mu.Unlock()
 	}()
 
 	wg.Wait()
-	ftsDur := time.Since(t0)
-	vecDur := time.Since(t1)
 
 	if ftsErr != nil {
 		return nil, ftsErr
@@ -466,8 +470,6 @@ func (ie *instrumentedEngine) Search(ctx context.Context, query string, langHint
 	ie.mu.Lock()
 	ie.prepareTime += prepareDur
 	ie.embedTime += embedDur
-	ie.ftsTime += ftsDur
-	ie.vecTime += vecDur
 	ie.phraseTime += phraseDur
 	ie.scoreTime += scoreDur
 	ie.metaTime += metaDur

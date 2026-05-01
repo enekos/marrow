@@ -95,10 +95,12 @@ func IndexTx(ctx context.Context, tx TxExec, doc Document) error {
 		return fmt.Errorf("lookup document: %w", err)
 	}
 
+	stemmedTitle := stemmer.StemText(doc.Title, doc.Lang)
+
 	if err == sql.ErrNoRows {
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO documents (path, hash, title, lang, source, doc_type) VALUES (?, ?, ?, ?, ?, ?)`,
-			doc.Path, doc.Hash, doc.Title, doc.Lang, doc.Source, doc.DocType)
+			`INSERT INTO documents (path, hash, title, stemmed_title, lang, source, doc_type) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			doc.Path, doc.Hash, doc.Title, stemmedTitle, doc.Lang, doc.Source, doc.DocType)
 		if err != nil {
 			return fmt.Errorf("insert document: %w", err)
 		}
@@ -108,8 +110,8 @@ func IndexTx(ctx context.Context, tx TxExec, doc Document) error {
 		}
 	} else {
 		_, err = tx.ExecContext(ctx,
-			`UPDATE documents SET hash = ?, title = ?, lang = ?, source = ?, doc_type = ?, last_modified = CURRENT_TIMESTAMP WHERE id = ?`,
-			doc.Hash, doc.Title, doc.Lang, doc.Source, doc.DocType, rowid)
+			`UPDATE documents SET hash = ?, title = ?, stemmed_title = ?, lang = ?, source = ?, doc_type = ?, last_modified = CURRENT_TIMESTAMP WHERE id = ?`,
+			doc.Hash, doc.Title, stemmedTitle, doc.Lang, doc.Source, doc.DocType, rowid)
 		if err != nil {
 			return fmt.Errorf("update document: %w", err)
 		}
@@ -132,7 +134,6 @@ func IndexTx(ctx context.Context, tx TxExec, doc Document) error {
 
 	// FTS title must be stemmed to match stemmed query tokens. The raw title
 	// remains in documents.title for display.
-	stemmedTitle := stemmer.StemText(doc.Title, doc.Lang)
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO documents_fts (rowid, title, content) VALUES (?, ?, ?)`,
 		rowid, stemmedTitle, doc.StemmedText); err != nil {

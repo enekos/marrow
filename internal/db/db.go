@@ -131,6 +131,7 @@ func (db *DB) migrate() error {
 	// existed. ALTER TABLE ADD COLUMN is idempotent-by-error so we ignore.
 	_, _ = db.Exec(`ALTER TABLE documents ADD COLUMN source TEXT DEFAULT 'local'`)
 	_, _ = db.Exec(`ALTER TABLE documents ADD COLUMN doc_type TEXT DEFAULT 'markdown'`)
+	_, _ = db.Exec(`ALTER TABLE documents ADD COLUMN stemmed_title TEXT`)
 	return nil
 }
 

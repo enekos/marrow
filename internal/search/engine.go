@@ -159,7 +159,7 @@ func NewEngineWithConfig(database DBConn, embedFn embed.Func, cfg *Config) *Engi
 		JOIN document_chunks c ON c.id = v.rowid
 		ORDER BY v.distance
 	`
-	metaSQLTmpl := `SELECT id, path, title, lang, doc_type, source, last_modified FROM documents WHERE id IN (`
+	metaSQLTmpl := `SELECT id, path, title, stemmed_title, lang, doc_type, source, last_modified FROM documents WHERE id IN (`
 	e := &Engine{
 		db:          database,
 		embedFn:     embedFn,
@@ -493,12 +493,13 @@ func (e *Engine) computeScores(ftsRes *ftsResult, vecRes *vecResult) []scoredDoc
 // ---------------------------------------------------------------------------
 
 type documentMeta struct {
-	path      string
-	title     string
-	lang      string
-	docType   string
-	source    string
-	lastMod   sql.NullTime
+	path         string
+	title        string
+	stemmedTitle string
+	lang         string
+	docType      string
+	source       string
+	lastMod      sql.NullTime
 }
 
 func (e *Engine) fetchMetadata(ctx context.Context, docs []scoredDoc, filterSQL string, filterArgs []any) (map[int64]documentMeta, error) {
@@ -534,7 +535,7 @@ func (e *Engine) fetchMetadata(ctx context.Context, docs []scoredDoc, filterSQL 
 	for rows.Next() {
 		var m documentMeta
 		var id int64
-		if err := rows.Scan(&id, &m.path, &m.title, &m.lang, &m.docType, &m.source, &m.lastMod); err != nil {
+		if err := rows.Scan(&id, &m.path, &m.title, &m.stemmedTitle, &m.lang, &m.docType, &m.source, &m.lastMod); err != nil {
 			return nil, fmt.Errorf("scan metadata: %w", err)
 		}
 		result[id] = m
@@ -574,7 +575,10 @@ func (e *Engine) buildResults(
 		}
 		score := s.score
 
-		stemmedTitle := stemmer.StemText(meta.title, meta.lang)
+		stemmedTitle := meta.stemmedTitle
+		if stemmedTitle == "" {
+			stemmedTitle = stemmer.StemText(meta.title, meta.lang)
+		}
 		tb := titleBoost(stemmedTitle, stemmedTokens, e.cfg.TitleBoostCoeff)
 		score *= tb
 
