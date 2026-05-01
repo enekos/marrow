@@ -29,9 +29,12 @@ RESULT_COMP=$(go test -tags sqlite_fts5 \
   -benchtime=200ms -count=3 -benchmem \
   ./internal/search/ 2>/dev/null)
 
-# Extract component metrics
+# Extract component metrics. Go benchmark output lists metrics as
+# "value unit" pairs separated by tabs. We take the first result line,
+# split on tabs, find the field containing the metric name, and extract
+# the leading number with awk.
 for metric in prepare_ns embed_ns fts_ns vec_ns phrase_ns score_ns meta_ns build_ns enrich_ns; do
-  VAL=$(echo "$RESULT_COMP" | grep 'ComponentBreakdown' | grep -o "${metric}/op[[:space:]]*[0-9]*" | awk '{print $2}' | head -1)
+  VAL=$(echo "$RESULT_COMP" | grep 'ComponentBreakdown' | head -1 | tr '\t' '\n' | grep "${metric}/op" | awk '{print $1}')
   if [ -n "$VAL" ]; then
     echo "METRIC ${metric}=$VAL"
   fi
