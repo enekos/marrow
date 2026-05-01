@@ -53,7 +53,7 @@ func DefaultConfig() Config {
 		RecencyBoostMax:      0.05,
 		SnippetMaxTokens:     32,
 		FallbackSnippetChars: 300,
-		FetchMultiplierFTS:   2,
+		FetchMultiplierFTS:   1,
 		FetchMultiplierVec:   5,
 		PhraseBoost:          1.10,
 		TitleBoostCoeff:      0.5,
