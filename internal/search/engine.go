@@ -494,8 +494,8 @@ func (e *Engine) pruneScoredDocs(docs []scoredDoc, limit int) []scoredDoc {
 		return docs
 	}
 	maxBoost := (1.0 + e.cfg.TitleBoostCoeff) * e.cfg.PhraseBoost * e.cfg.PhraseBoost * (1.0 + e.cfg.RecencyBoostMax) * e.cfg.ChunkBoost3Plus
-	// 2x safety margin beyond the theoretical maximum boost.
-	threshold := cutoffScore / (maxBoost * 2.0)
+	// 1.5x safety margin beyond the theoretical maximum boost.
+	threshold := cutoffScore / (maxBoost * 1.5)
 	kept := 0
 	for _, d := range docs {
 		if d.score >= threshold {
