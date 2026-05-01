@@ -159,7 +159,7 @@ func NewEngineWithConfig(database DBConn, embedFn embed.Func, cfg *Config) *Engi
 		JOIN document_chunks c ON c.id = v.rowid
 		ORDER BY v.distance
 	`
-	metaSQLTmpl := `SELECT id, path, title, stemmed_title, lang, doc_type, source, last_modified FROM documents WHERE id IN (`
+	metaSQLTmpl := `SELECT id, path, title, stemmed_title, lang, doc_type, last_modified FROM documents WHERE id IN (`
 	e := &Engine{
 		db:          database,
 		embedFn:     embedFn,
@@ -503,7 +503,6 @@ type documentMeta struct {
 	stemmedTitle string
 	lang         string
 	docType      string
-	source       string
 	lastMod      sql.NullTime
 }
 
@@ -512,15 +511,14 @@ func (e *Engine) fetchMetadata(ctx context.Context, docs []scoredDoc, filterSQL 
 		return map[int64]documentMeta{}, nil
 	}
 
-	placeholders := make([]string, len(docs))
 	args := e.argsPool.Get().([]any)
 	args = args[:0]
-	for i, d := range docs {
-		placeholders[i] = "?"
+	for _, d := range docs {
 		args = append(args, d.id)
 	}
 
-	q := e.metaSQLTmpl + strings.Join(placeholders, ",") + `)`
+	q := e.metaSQLTmpl + strings.Repeat("?,", len(docs))
+	q = q[:len(q)-1] + `)`
 	if filterSQL != "" {
 		q += " AND " + filterSQL
 		args = append(args, filterArgs...)
@@ -540,7 +538,7 @@ func (e *Engine) fetchMetadata(ctx context.Context, docs []scoredDoc, filterSQL 
 	for rows.Next() {
 		var m documentMeta
 		var id int64
-		if err := rows.Scan(&id, &m.path, &m.title, &m.stemmedTitle, &m.lang, &m.docType, &m.source, &m.lastMod); err != nil {
+		if err := rows.Scan(&id, &m.path, &m.title, &m.stemmedTitle, &m.lang, &m.docType, &m.lastMod); err != nil {
 			return nil, fmt.Errorf("scan metadata: %w", err)
 		}
 		result[id] = m
