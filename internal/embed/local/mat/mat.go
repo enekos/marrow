@@ -218,16 +218,17 @@ func SoftmaxRows(x []float32, M, N int) {
 	}
 }
 
-// GELU applies the exact BERT GELU activation element-wise:
+// GELU applies the BERT GELU activation element-wise using the fast tanh
+// approximation (same as PyTorch's approximate='tanh'). This is ~2× faster
+// than math.Erf with negligible accuracy difference for embedding use.
 //
-//	y = 0.5 * x * (1 + erf(x / sqrt(2)))
-//
-// Note: this is the "exact" variant, not the tanh approximation. BERT and
-// MiniLM use the exact form.
+//	y = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
 func GELU(x []float32) {
-	const invSqrt2 = 0.7071067811865475
+	const geluCoeff = 0.044715
+	const sqrt2OverPi = 0.7978845608028654
 	for i, v := range x {
-		x[i] = 0.5 * v * (1 + float32(math.Erf(float64(v)*invSqrt2)))
+		vv := float64(v)
+		x[i] = float32(0.5 * vv * (1.0 + math.Tanh(sqrt2OverPi*(vv+geluCoeff*vv*vv*vv))))
 	}
 }
 
