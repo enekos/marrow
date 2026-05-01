@@ -68,4 +68,18 @@ for size in 100 500 1000 5000; do
   fi
 done
 
+# Cold-cache benchmark
+RESULT_COLD=$(go test -tags sqlite_fts5 \
+  -bench='BenchmarkSearch_ColdCache' \
+  -benchtime=100ms -count=3 -benchmem \
+  ./internal/search/ 2>/dev/null)
+NSOP_COLD=$(echo "$RESULT_COLD" | grep 'ColdCache' | awk '{print $3}' | sed 's/ns\/op//' | head -1)
+BOP_COLD=$(echo "$RESULT_COLD" | grep 'ColdCache' | awk '{print $5}' | sed 's/B\/op//' | head -1)
+ALLOPS_COLD=$(echo "$RESULT_COLD" | grep 'ColdCache' | awk '{print $7}' | sed 's/allocs\/op//' | head -1)
+if [ -n "$NSOP_COLD" ]; then
+  echo "METRIC cold_ns=$NSOP_COLD"
+  echo "METRIC cold_bytes=$BOP_COLD"
+  echo "METRIC cold_allocs=$ALLOPS_COLD"
+fi
+
 echo "=== Benchmarks complete ==="
