@@ -232,6 +232,9 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	}
 
 	scoredDocs := e.computeScores(ftsRes, vecRes)
+	if filterSQL == "" {
+		scoredDocs = e.pruneScoredDocs(scoredDocs, limit)
+	}
 
 	// Batch-fetch metadata to eliminate N+1 queries.
 	metadata, err := e.fetchMetadata(ctx, scoredDocs, filterSQL, filterArgs)
@@ -464,6 +467,42 @@ func (e *Engine) detectPhraseMatches(ctx context.Context, phrase string, limit i
 type scoredDoc struct {
 	id    int64
 	score float64
+}
+
+// pruneScoredDocs removes docs that cannot possibly reach the top `limit`
+// positions even with maximum boosts applied. This is mathematically safe
+// because every boost is multiplicative and bounded by cfg. We use a 2x
+// safety margin on top of the theoretical max boost to guard against
+// floating-point rounding and unexpected score distributions.
+func (e *Engine) pruneScoredDocs(docs []scoredDoc, limit int) []scoredDoc {
+	if limit <= 0 || len(docs) <= limit {
+		return docs
+	}
+	// Sort descending by base score.
+	slices.SortFunc(docs, func(a, b scoredDoc) int {
+		if b.score > a.score {
+			return 1
+		}
+		if b.score < a.score {
+			return -1
+		}
+		return 0
+	})
+	cutoffScore := docs[limit-1].score
+	if cutoffScore <= 0 {
+		return docs
+	}
+	maxBoost := (1.0 + e.cfg.TitleBoostCoeff) * e.cfg.PhraseBoost * e.cfg.PhraseBoost * (1.0 + e.cfg.RecencyBoostMax) * e.cfg.ChunkBoost3Plus
+	// 2x safety margin beyond the theoretical maximum boost.
+	threshold := cutoffScore / (maxBoost * 2.0)
+	kept := 0
+	for _, d := range docs {
+		if d.score >= threshold {
+			docs[kept] = d
+			kept++
+		}
+	}
+	return docs[:kept]
 }
 
 func (e *Engine) computeScores(ftsRes *ftsResult, vecRes *vecResult) []scoredDoc {
