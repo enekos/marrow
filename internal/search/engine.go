@@ -451,16 +451,6 @@ type scoredDoc struct {
 }
 
 func (e *Engine) computeScores(ftsRes *ftsResult, vecRes *vecResult) []scoredDoc {
-	// Normalise BM25 and vector similarities independently.
-	ftsNormMap := make(map[int64]float64, len(ftsRes.order))
-	for _, id := range ftsRes.order {
-		ftsNormMap[id] = 1.0 / (1.0 - ftsRes.infos[id].bm25)
-	}
-	vecNormMap := make(map[int64]float64, len(vecRes.order))
-	for _, id := range vecRes.order {
-		vecNormMap[id] = 1.0 / (1.0 + vecRes.infos[id].distance)
-	}
-
 	allIDs := make(map[int64]struct{}, len(ftsRes.infos)+len(vecRes.infos))
 	for id := range ftsRes.infos {
 		allIDs[id] = struct{}{}
@@ -474,12 +464,12 @@ func (e *Engine) computeScores(ftsRes *ftsResult, vecRes *vecResult) []scoredDoc
 		var s float64
 		if info, ok := ftsRes.infos[id]; ok {
 			rrf := 1.0 / (e.cfg.RRFK + float64(info.rank))
-			norm := ftsNormMap[id]
+			norm := 1.0 / (1.0 - info.bm25)
 			s += e.cfg.FTSWeight * ((1.0-e.cfg.ScoreBlendAlpha)*rrf + e.cfg.ScoreBlendAlpha*norm)
 		}
 		if info, ok := vecRes.infos[id]; ok {
 			rrf := 1.0 / (e.cfg.RRFK + float64(info.rank))
-			norm := vecNormMap[id]
+			norm := 1.0 / (1.0 + info.distance)
 			s += e.cfg.VecWeight * ((1.0-e.cfg.ScoreBlendAlpha)*rrf + e.cfg.ScoreBlendAlpha*norm)
 		}
 		scoredDocs = append(scoredDocs, scoredDoc{id: id, score: s})
