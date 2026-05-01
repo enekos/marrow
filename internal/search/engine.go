@@ -558,6 +558,12 @@ func (e *Engine) buildResults(
 	now := time.Now()
 	results := make([]Result, 0, len(scoredDocs))
 
+	// Pre-lower phrase once for case-insensitive title matching.
+	phraseLower := ""
+	if phrase != "" {
+		phraseLower = strings.ToLower(phrase)
+	}
+
 	for _, s := range scoredDocs {
 		meta, ok := metadata[s.id]
 		if !ok {
@@ -569,7 +575,7 @@ func (e *Engine) buildResults(
 		tb := titleBoost(stemmedTitle, stemmedTokens, e.cfg.TitleBoostCoeff)
 		score *= tb
 
-		if phrase != "" && strings.Contains(strings.ToLower(meta.title), strings.ToLower(phrase)) {
+		if phraseLower != "" && strings.Contains(strings.ToLower(meta.title), phraseLower) {
 			score *= e.cfg.PhraseBoost
 		}
 
@@ -638,22 +644,29 @@ func (e *Engine) buildResults(
 // ---------------------------------------------------------------------------
 
 func (e *Engine) enrichResults(results []Result, stemmedTokens []string) {
+	if len(results) == 0 {
+		return
+	}
+
+	// Compute highlights once — they are identical for every result.
+	var highlights []string
+	if len(stemmedTokens) > 0 {
+		seen := make(map[string]struct{}, len(stemmedTokens))
+		highlights = make([]string, 0, len(stemmedTokens))
+		for _, t := range stemmedTokens {
+			if _, ok := seen[t]; ok {
+				continue
+			}
+			seen[t] = struct{}{}
+			highlights = append(highlights, t)
+		}
+	}
+
 	for i := range results {
 		if results[i].Snippet != "" && len(results[i].Snippet) > e.cfg.FallbackSnippetChars {
 			results[i].Snippet = strings.TrimSpace(results[i].Snippet[:e.cfg.FallbackSnippetChars]) + "…"
 		}
-		if len(stemmedTokens) > 0 {
-			seen := make(map[string]struct{}, len(stemmedTokens))
-			hl := make([]string, 0, len(stemmedTokens))
-			for _, t := range stemmedTokens {
-				if _, ok := seen[t]; ok {
-					continue
-				}
-				seen[t] = struct{}{}
-				hl = append(hl, t)
-			}
-			results[i].Highlights = hl
-		}
+		results[i].Highlights = highlights
 		results[i].TokenEstimate = estimateTokens(results[i].Snippet)
 		results[i].ContextTokens = estimateTokens(results[i].Context)
 	}
