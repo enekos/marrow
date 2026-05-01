@@ -629,12 +629,13 @@ func (e *Engine) buildResults(
 		tb := titleBoost(stemmedTitle, stemmedTokens, e.cfg.TitleBoostCoeff)
 		score *= tb
 
-		if phraseLower != "" && strings.Contains(strings.ToLower(meta.title), phraseLower) {
-			score *= e.cfg.PhraseBoost
-		}
-
-		if _, ok := phraseDocIDs[s.id]; ok {
-			score *= e.cfg.PhraseBoost
+		if phraseLower != "" {
+			if strings.Contains(strings.ToLower(meta.title), phraseLower) {
+				score *= e.cfg.PhraseBoost
+			}
+			if _, ok := phraseDocIDs[s.id]; ok {
+				score *= e.cfg.PhraseBoost
+			}
 		}
 
 		rb := 1.0
@@ -667,8 +668,10 @@ func (e *Engine) buildResults(
 		if _, ok := vecRes.infos[s.id]; ok {
 			reasons = append(reasons, "semantic")
 		}
-		if _, ok := phraseDocIDs[s.id]; ok {
-			reasons = append(reasons, "exact_phrase")
+		if phraseLower != "" {
+			if _, ok := phraseDocIDs[s.id]; ok {
+				reasons = append(reasons, "exact_phrase")
+			}
 		}
 		if tb > 1.0 {
 			reasons = append(reasons, "title_match")
