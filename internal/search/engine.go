@@ -336,7 +336,7 @@ func (e *Engine) queryFTS(ctx context.Context, stemmedQuery string, limit int, h
 	}
 	defer rows.Close()
 
-	res := &ftsResult{infos: make(map[int64]ftsInfo)}
+	res := &ftsResult{infos: make(map[int64]ftsInfo, limit*e.cfg.FetchMultiplierFTS), order: make([]int64, 0, limit*e.cfg.FetchMultiplierFTS)}
 	rank := 1
 	for rows.Next() {
 		var id int64
@@ -389,9 +389,10 @@ func (e *Engine) queryVectors(ctx context.Context, qblob []byte, limit int) (*ve
 	defer rows.Close()
 
 	res := &vecResult{
-		infos:         make(map[int64]vecInfo),
+		infos:         make(map[int64]vecInfo, limit*e.cfg.FetchMultiplierVec),
 		bestChunkText: make(map[int64]string),
 		docChunks:     make(map[int64][]string),
+		order:         make([]int64, 0, limit*e.cfg.FetchMultiplierVec),
 	}
 	rank := 1
 	for rows.Next() {
