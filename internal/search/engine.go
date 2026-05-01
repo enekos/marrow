@@ -121,6 +121,7 @@ type Engine struct {
 	ftsSQL      string   // precompiled FTS query template
 	vecSQL      string   // precompiled vector query
 	metaSQLTmpl string   // metadata query template up to the IN clause
+	argsPool    sync.Pool // pool for []any metadata arg slices
 }
 
 // NewEngine creates a search engine with default configuration.
@@ -159,7 +160,7 @@ func NewEngineWithConfig(database DBConn, embedFn embed.Func, cfg *Config) *Engi
 		ORDER BY v.distance
 	`
 	metaSQLTmpl := `SELECT id, path, title, lang, doc_type, source, last_modified FROM documents WHERE id IN (`
-	return &Engine{
+	e := &Engine{
 		db:          database,
 		embedFn:     embedFn,
 		cfg:         c,
@@ -169,6 +170,8 @@ func NewEngineWithConfig(database DBConn, embedFn embed.Func, cfg *Config) *Engi
 		vecSQL:      vecSQL,
 		metaSQLTmpl: metaSQLTmpl,
 	}
+	e.argsPool = sync.Pool{New: func() any { return make([]any, 0, 256) }}
+	return e
 }
 
 // Search runs a hybrid query and returns ranked results.
@@ -503,10 +506,11 @@ func (e *Engine) fetchMetadata(ctx context.Context, docs []scoredDoc, filterSQL 
 	}
 
 	placeholders := make([]string, len(docs))
-	args := make([]any, len(docs))
+	args := e.argsPool.Get().([]any)
+	args = args[:0]
 	for i, d := range docs {
 		placeholders[i] = "?"
-		args[i] = d.id
+		args = append(args, d.id)
 	}
 
 	q := e.metaSQLTmpl + strings.Join(placeholders, ",") + `)`
@@ -517,9 +521,13 @@ func (e *Engine) fetchMetadata(ctx context.Context, docs []scoredDoc, filterSQL 
 
 	rows, err := e.db.QueryContext(ctx, q, args...)
 	if err != nil {
+		e.argsPool.Put(args)
 		return nil, fmt.Errorf("fetch metadata: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		rows.Close()
+		e.argsPool.Put(args)
+	}()
 
 	result := make(map[int64]documentMeta, len(docs))
 	for rows.Next() {
