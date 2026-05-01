@@ -430,12 +430,12 @@ func (e *Engine) queryVectors(ctx context.Context, qblob []byte, limit int) (*ve
 
 func (e *Engine) detectPhraseMatches(ctx context.Context, phrase string, limit int) (map[int64]struct{}, error) {
 	if phrase == "" {
-		return map[int64]struct{}{}, nil
+		return nil, nil
 	}
 	// Single-word queries cannot benefit from phrase detection; skip the
 	// extra FTS round-trip.
 	if len(strings.Fields(phrase)) <= 1 {
-		return map[int64]struct{}{}, nil
+		return nil, nil
 	}
 	ftsPhrase := `"` + strings.ReplaceAll(phrase, `"`, ``) + `"`
 	rows, err := e.db.QueryContext(ctx,
@@ -506,29 +506,33 @@ func (e *Engine) pruneScoredDocs(docs []scoredDoc, limit int) []scoredDoc {
 }
 
 func (e *Engine) computeScores(ftsRes *ftsResult, vecRes *vecResult) []scoredDoc {
-	allIDs := make(map[int64]struct{}, len(ftsRes.infos)+len(vecRes.infos))
-	for id := range ftsRes.infos {
-		allIDs[id] = struct{}{}
-	}
-	for id := range vecRes.infos {
-		allIDs[id] = struct{}{}
-	}
+	total := len(ftsRes.infos) + len(vecRes.infos)
+	scoredDocs := make([]scoredDoc, 0, total)
 
-	scoredDocs := make([]scoredDoc, 0, len(allIDs))
-	for id := range allIDs {
-		var s float64
-		if info, ok := ftsRes.infos[id]; ok {
-			rrf := 1.0 / (e.cfg.RRFK + float64(info.rank))
-			norm := 1.0 / (1.0 - info.bm25)
-			s += e.cfg.FTSWeight * ((1.0-e.cfg.ScoreBlendAlpha)*rrf + e.cfg.ScoreBlendAlpha*norm)
-		}
-		if info, ok := vecRes.infos[id]; ok {
-			rrf := 1.0 / (e.cfg.RRFK + float64(info.rank))
-			norm := 1.0 / (1.0 + info.distance)
+	// Process all FTS docs first; vector matches are merged in.
+	for id, info := range ftsRes.infos {
+		rrf := 1.0 / (e.cfg.RRFK + float64(info.rank))
+		norm := 1.0 / (1.0 - info.bm25)
+		s := e.cfg.FTSWeight * ((1.0-e.cfg.ScoreBlendAlpha)*rrf + e.cfg.ScoreBlendAlpha*norm)
+		if vinfo, ok := vecRes.infos[id]; ok {
+			rrf = 1.0 / (e.cfg.RRFK + float64(vinfo.rank))
+			norm = 1.0 / (1.0 + vinfo.distance)
 			s += e.cfg.VecWeight * ((1.0-e.cfg.ScoreBlendAlpha)*rrf + e.cfg.ScoreBlendAlpha*norm)
 		}
 		scoredDocs = append(scoredDocs, scoredDoc{id: id, score: s})
 	}
+
+	// Process vector-only docs.
+	for id, vinfo := range vecRes.infos {
+		if _, ok := ftsRes.infos[id]; ok {
+			continue
+		}
+		rrf := 1.0 / (e.cfg.RRFK + float64(vinfo.rank))
+		norm := 1.0 / (1.0 + vinfo.distance)
+		s := e.cfg.VecWeight * ((1.0-e.cfg.ScoreBlendAlpha)*rrf + e.cfg.ScoreBlendAlpha*norm)
+		scoredDocs = append(scoredDocs, scoredDoc{id: id, score: s})
+	}
+
 	return scoredDocs
 }
 
