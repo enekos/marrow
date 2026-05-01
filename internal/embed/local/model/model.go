@@ -150,11 +150,11 @@ func shapeEq(a, b []int) bool {
 	return true
 }
 
-// Encoder drives the forward pass. A single instance is safe for concurrent
-// Encode calls — each call allocates its own scratch.
+// Encoder drives the forward pass. Safe for concurrent Encode calls.
 type Encoder struct {
-	Cfg Config
-	W   *Weights
+	Cfg   Config
+	W     *Weights
+	pool  sync.Pool
 }
 
 // NewEncoder returns an Encoder bound to cfg and weights.
@@ -176,16 +176,33 @@ func (e *Encoder) Encode(ids, mask, typeIDs []int32) []float32 {
 	x := embedTokens(cfg, w, ids, typeIDs)
 	mat.LayerNorm(x, w.EmbLNGamma, w.EmbLNBeta, L, H, cfg.LayerNormEps)
 
-	s := newScratch(cfg, L)
+	s := e.getScratch(L)
 	mm := pickMatMul(L)
 	for i := range w.Layers {
 		s.runLayer(cfg, &w.Layers[i], x, mask, mm)
 	}
+	e.putScratch(s)
 
 	out := make([]float32, H)
 	mat.MeanPoolMasked(x, mask, L, H, out)
 	mat.L2Normalize(out)
 	return out
+}
+
+// getScratch obtains a scratch buffer from the pool, allocating a new one
+// if the pooled buffer is too small for the current sequence length.
+func (e *Encoder) getScratch(L int) *scratch {
+	if v := e.pool.Get(); v != nil {
+		if s := v.(*scratch); s.capL >= L {
+			return s
+		}
+	}
+	return newScratch(e.Cfg, L)
+}
+
+// putScratch returns a scratch buffer to the pool.
+func (e *Encoder) putScratch(s *scratch) {
+	e.pool.Put(s)
 }
 
 // embedTokens computes x[i] = WordEmb[ids[i]] + PosEmb[i] + TypeEmb[typeIDs[i]]
@@ -226,6 +243,7 @@ type scratch struct {
 	heads         []headScratch
 	workers       int
 	scale         float32
+	capL          int // capacity in sequence length (len(q)/H)
 }
 
 type headScratch struct {
@@ -243,6 +261,7 @@ func newScratch(cfg Config, L int) *scratch {
 		inter:   make([]float32, L*Hi),
 		ffnOut:  make([]float32, L*H),
 		scale:   float32(1.0 / math.Sqrt(float64(Dk))),
+		capL:    L,
 	}
 
 	// One head-scratch per worker. Short inputs get a single serial worker
