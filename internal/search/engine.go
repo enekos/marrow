@@ -54,7 +54,7 @@ func DefaultConfig() Config {
 		SnippetMaxTokens:     32,
 		FallbackSnippetChars: 300,
 		FetchMultiplierFTS:   3,
-		FetchMultiplierVec:   10,
+		FetchMultiplierVec:   5,
 		PhraseBoost:          1.10,
 		TitleBoostCoeff:      0.5,
 		MaxChunksPerDoc:      3,
