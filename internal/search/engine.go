@@ -447,7 +447,7 @@ func (e *Engine) detectPhraseMatches(ctx context.Context, phrase string, limit i
 	}
 	defer rows.Close()
 
-	ids := make(map[int64]struct{})
+	ids := make(map[int64]struct{}, limit*e.cfg.FetchMultiplierFTS)
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
