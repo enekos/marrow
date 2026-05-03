@@ -109,6 +109,7 @@ type Filter struct {
 type DBConn interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
 }
 
 // Engine executes hybrid search queries.
@@ -118,9 +119,10 @@ type Engine struct {
 	cfg         Config
 	DetectLang  bool
 	DefaultLang string
-	ftsSQL      string   // precompiled FTS query template
-	vecSQL      string   // precompiled vector query
-	metaSQLTmpl string   // metadata query template up to the IN clause
+	ftsSQL      string    // precompiled FTS query template
+	ftsStmt     *sql.Stmt // prepared FTS statement (nil if prepare failed)
+	vecSQL      string    // precompiled vector query
+	metaSQLTmpl string    // metadata query template up to the IN clause
 	argsPool    sync.Pool // pool for []any metadata arg slices
 }
 
@@ -169,6 +171,11 @@ func NewEngineWithConfig(database DBConn, embedFn embed.Func, cfg *Config) *Engi
 		ftsSQL:      ftsSQL,
 		vecSQL:      vecSQL,
 		metaSQLTmpl: metaSQLTmpl,
+	}
+	// Prepare the FTS statement once to avoid per-query SQL parsing overhead.
+	// We ignore prepare errors and fall back to db.QueryContext at query time.
+	if stmt, err := database.PrepareContext(context.Background(), ftsSQL); err == nil {
+		e.ftsStmt = stmt
 	}
 	e.argsPool = sync.Pool{New: func() any { return make([]any, 0, 256) }}
 	return e
@@ -333,7 +340,13 @@ func (e *Engine) queryFTS(ctx context.Context, stemmedQuery string, limit int, h
 		closeMark = highlightCloseSentinel
 	}
 
-	rows, err := e.db.QueryContext(ctx, e.ftsSQL, openMark, closeMark, stemmedQuery, limit*e.cfg.FetchMultiplierFTS)
+	var rows *sql.Rows
+	var err error
+	if e.ftsStmt != nil {
+		rows, err = e.ftsStmt.QueryContext(ctx, openMark, closeMark, stemmedQuery, limit*e.cfg.FetchMultiplierFTS)
+	} else {
+		rows, err = e.db.QueryContext(ctx, e.ftsSQL, openMark, closeMark, stemmedQuery, limit*e.cfg.FetchMultiplierFTS)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("fts query: %w", err)
 	}
