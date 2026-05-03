@@ -51,7 +51,7 @@ func DefaultConfig() Config {
 		BM25ContentWeight:    1.0,
 		MaxRecencyDays:       180.0,
 		RecencyBoostMax:      0.05,
-		SnippetMaxTokens:     32,
+		SnippetMaxTokens:     20,
 		FallbackSnippetChars: 300,
 		FetchMultiplierFTS:   1,
 		FetchMultiplierVec:   5,
