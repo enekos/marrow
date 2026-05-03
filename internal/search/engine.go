@@ -122,6 +122,7 @@ type Engine struct {
 	ftsSQL      string    // precompiled FTS query template
 	ftsStmt     *sql.Stmt // prepared FTS statement (nil if prepare failed)
 	vecSQL      string    // precompiled vector query
+	vecStmt     *sql.Stmt // prepared vector statement (nil if prepare failed)
 	metaSQLTmpl string    // metadata query template up to the IN clause
 	argsPool    sync.Pool // pool for []any metadata arg slices
 }
@@ -172,10 +173,13 @@ func NewEngineWithConfig(database DBConn, embedFn embed.Func, cfg *Config) *Engi
 		vecSQL:      vecSQL,
 		metaSQLTmpl: metaSQLTmpl,
 	}
-	// Prepare the FTS statement once to avoid per-query SQL parsing overhead.
+	// Prepare static statements once to avoid per-query SQL parsing overhead.
 	// We ignore prepare errors and fall back to db.QueryContext at query time.
 	if stmt, err := database.PrepareContext(context.Background(), ftsSQL); err == nil {
 		e.ftsStmt = stmt
+	}
+	if stmt, err := database.PrepareContext(context.Background(), vecSQL); err == nil {
+		e.vecStmt = stmt
 	}
 	e.argsPool = sync.Pool{New: func() any { return make([]any, 0, 256) }}
 	return e
@@ -399,7 +403,13 @@ type vecInfo struct {
 }
 
 func (e *Engine) queryVectors(ctx context.Context, qblob []byte, limit int) (*vecResult, error) {
-	rows, err := e.db.QueryContext(ctx, e.vecSQL, qblob, limit*e.cfg.FetchMultiplierVec)
+	var rows *sql.Rows
+	var err error
+	if e.vecStmt != nil {
+		rows, err = e.vecStmt.QueryContext(ctx, qblob, limit*e.cfg.FetchMultiplierVec)
+	} else {
+		rows, err = e.db.QueryContext(ctx, e.vecSQL, qblob, limit*e.cfg.FetchMultiplierVec)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("vec query: %w", err)
 	}
