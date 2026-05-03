@@ -46,8 +46,16 @@ func Open(path string) (*DB, error) {
 		_, _ = sqlDB.Exec(p)
 	}
 	// SQLite performs best with a single writer; cap connections.
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
+	// File-backed databases under WAL mode can safely use multiple read
+	// connections, which allows concurrent FTS and vector queries.
+	// In-memory databases are isolated per-connection, so keep them at 1.
+	if path == ":memory:" {
+		sqlDB.SetMaxOpenConns(1)
+		sqlDB.SetMaxIdleConns(1)
+	} else {
+		sqlDB.SetMaxOpenConns(4)
+		sqlDB.SetMaxIdleConns(4)
+	}
 
 	db := &DB{DB: sqlDB}
 	if err := db.migrate(); err != nil {

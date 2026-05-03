@@ -350,7 +350,6 @@ func (e *Engine) queryFTS(ctx context.Context, stemmedQuery string, limit int, h
 	if err != nil {
 		return nil, fmt.Errorf("fts query: %w", err)
 	}
-	defer rows.Close()
 
 	res := &ftsResult{infos: make(map[int64]ftsInfo, limit*e.cfg.FetchMultiplierFTS), order: make([]int64, 0, limit*e.cfg.FetchMultiplierFTS)}
 	rank := 1
@@ -369,8 +368,10 @@ func (e *Engine) queryFTS(ctx context.Context, stemmedQuery string, limit int, h
 		rank++
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return nil, fmt.Errorf("fts rows: %w", err)
 	}
+	rows.Close()
 	return res, nil
 }
 
@@ -402,7 +403,6 @@ func (e *Engine) queryVectors(ctx context.Context, qblob []byte, limit int) (*ve
 	if err != nil {
 		return nil, fmt.Errorf("vec query: %w", err)
 	}
-	defer rows.Close()
 
 	capacity := limit * e.cfg.FetchMultiplierVec
 	res := &vecResult{
@@ -433,8 +433,10 @@ func (e *Engine) queryVectors(ctx context.Context, qblob []byte, limit int) (*ve
 		}
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return nil, fmt.Errorf("vec rows: %w", err)
 	}
+	rows.Close()
 	return res, nil
 }
 
@@ -458,19 +460,21 @@ func (e *Engine) detectPhraseMatches(ctx context.Context, phrase string, limit i
 	if err != nil {
 		return nil, fmt.Errorf("phrase query: %w", err)
 	}
-	defer rows.Close()
 
 	ids := make(map[int64]struct{}, limit*e.cfg.FetchMultiplierFTS)
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
+			rows.Close()
 			return nil, fmt.Errorf("scan phrase row: %w", err)
 		}
 		ids[id] = struct{}{}
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return nil, fmt.Errorf("phrase rows: %w", err)
 	}
+	rows.Close()
 	return ids, nil
 }
 
@@ -586,23 +590,25 @@ func (e *Engine) fetchMetadata(ctx context.Context, docs []scoredDoc, filterSQL 
 		e.argsPool.Put(args)
 		return nil, fmt.Errorf("fetch metadata: %w", err)
 	}
-	defer func() {
-		rows.Close()
-		e.argsPool.Put(args)
-	}()
 
 	result := make(map[int64]documentMeta, len(docs))
 	for rows.Next() {
 		var m documentMeta
 		var id int64
 		if err := rows.Scan(&id, &m.path, &m.title, &m.stemmedTitle, &m.lang, &m.docType, &m.lastMod); err != nil {
+			rows.Close()
+			e.argsPool.Put(args)
 			return nil, fmt.Errorf("scan metadata: %w", err)
 		}
 		result[id] = m
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
+		e.argsPool.Put(args)
 		return nil, fmt.Errorf("metadata rows: %w", err)
 	}
+	rows.Close()
+	e.argsPool.Put(args)
 	return result, nil
 }
 
