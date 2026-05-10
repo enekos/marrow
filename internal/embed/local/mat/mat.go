@@ -4,11 +4,11 @@
 // All operations are fp32, row-major. Shapes are tracked by callers; this
 // package only sees flat slices plus leading dimensions.
 //
-// The implementation is pure Go. The main hot spot is MatMul; we use a
-// cache-blocked three-loop variant that is roughly an order of magnitude
-// faster than naive i-j-k on typical encoder sizes. A faster replacement
-// (gonum/blas or hand-rolled asm) can be dropped in later without touching
-// the model code.
+// MatMul uses a cache-blocked three-loop variant. The fp32 dot product —
+// the inner kernel of MatMulTransposeB and the BERT forward pass — is
+// dispatched through `dot()`, which is implemented in arch-specific files:
+// arm64 NEON FMLA (dot_arm64.s) and amd64 AVX2 FMA (dot_amd64.s), with a
+// scalar Go fallback in dot.go for other architectures.
 package mat
 
 import (
@@ -73,84 +73,16 @@ func MatMulTransposeB(a []float32, b []float32, c []float32, M, K, N int) {
 	}
 }
 
-// dot8 returns eight parallel dot products of a with b0..b7. Single
-// accumulator per column plus a paired even/odd split over K: each column
-// has two accumulators so one FMA can retire while the next issues.
-// Sharing the a-stream across eight B rows multiplies arithmetic intensity
-// and keeps the L1 cache line under pressure on the same aRow for the full
-// tile, so the compiler emits a tight fused-multiply-add loop.
+// dot8 returns eight parallel dot products of a with b0..b7. The hot path
+// inside MatMulTransposeB. Streams aRow once into L1 and runs eight
+// independent dot kernels against it — on arm64/amd64 each kernel is a
+// SIMD FMA loop (see dot_{arm64,amd64}.s), so the eight calls share the
+// same warm a-stream and saturate the FMA pipeline.
 func dot8(a, b0, b1, b2, b3, b4, b5, b6, b7 []float32) (
 	float32, float32, float32, float32, float32, float32, float32, float32,
 ) {
-	n := len(a)
-	var s0a, s0b, s1a, s1b, s2a, s2b, s3a, s3b float32
-	var s4a, s4b, s5a, s5b, s6a, s6b, s7a, s7b float32
-	i := 0
-	for ; i+2 <= n; i += 2 {
-		a0, a1 := a[i], a[i+1]
-		s0a += a0 * b0[i]
-		s0b += a1 * b0[i+1]
-		s1a += a0 * b1[i]
-		s1b += a1 * b1[i+1]
-		s2a += a0 * b2[i]
-		s2b += a1 * b2[i+1]
-		s3a += a0 * b3[i]
-		s3b += a1 * b3[i+1]
-		s4a += a0 * b4[i]
-		s4b += a1 * b4[i+1]
-		s5a += a0 * b5[i]
-		s5b += a1 * b5[i+1]
-		s6a += a0 * b6[i]
-		s6b += a1 * b6[i+1]
-		s7a += a0 * b7[i]
-		s7b += a1 * b7[i+1]
-	}
-	r0 := s0a + s0b
-	r1 := s1a + s1b
-	r2 := s2a + s2b
-	r3 := s3a + s3b
-	r4 := s4a + s4b
-	r5 := s5a + s5b
-	r6 := s6a + s6b
-	r7 := s7a + s7b
-	if i < n {
-		ai := a[i]
-		r0 += ai * b0[i]
-		r1 += ai * b1[i]
-		r2 += ai * b2[i]
-		r3 += ai * b3[i]
-		r4 += ai * b4[i]
-		r5 += ai * b5[i]
-		r6 += ai * b6[i]
-		r7 += ai * b7[i]
-	}
-	return r0, r1, r2, r3, r4, r5, r6, r7
-}
-
-// dot returns the scalar dot product of a and b. Callers must ensure
-// len(a) == len(b); the function reads min(len) elements.
-func dot(a, b []float32) float32 {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
-	var s0, s1, s2, s3, s4, s5, s6, s7 float32
-	i := 0
-	for ; i+8 <= n; i += 8 {
-		s0 += a[i] * b[i]
-		s1 += a[i+1] * b[i+1]
-		s2 += a[i+2] * b[i+2]
-		s3 += a[i+3] * b[i+3]
-		s4 += a[i+4] * b[i+4]
-		s5 += a[i+5] * b[i+5]
-		s6 += a[i+6] * b[i+6]
-		s7 += a[i+7] * b[i+7]
-	}
-	sum := (s0 + s1) + (s2 + s3) + (s4 + s5) + (s6 + s7)
-	for ; i < n; i++ {
-		sum += a[i] * b[i]
-	}
-	return sum
+	return dot(a, b0), dot(a, b1), dot(a, b2), dot(a, b3),
+		dot(a, b4), dot(a, b5), dot(a, b6), dot(a, b7)
 }
 
 // AddBias adds a row vector `bias` (len N) to each row of an MxN matrix.

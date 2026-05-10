@@ -20,11 +20,13 @@
 - ~~`pruneScoredDocs` 1.5x → 1.3x safety margin~~ (#39) — more aggressive pruning, fewer docs in metadata fetch
 - ~~Prepared FTS statement~~ (#41) — avoids per-query SQL parsing overhead
 - ~~SnippetMaxTokens 32→20→16~~ (#44, #45) — reduces snippet() scanning work
+- ~~Connection pool for file-backed DBs~~ (#53) — MaxOpenConns=4 under WAL mode unlocks true concurrent FTS+vector execution (~11.9% win)
+- ~~Prepared vector statement~~ (#54) — mirrors FTS prepared statement, avoids per-query SQL parsing
 
 ## Result
-- **search_ns**: 1,550,368 → ~988,000 (-36.3%)
-- **search_bytes**: 316,375 → ~109,400 (-65.5%)
-- **search_allocs**: 5,482 → ~1,917 (-65.0%)
+- **search_ns**: 1,550,368 → ~674,000 (-56.5%)
+- **search_bytes**: 316,375 → ~47,700 (-84.9%)
+- **search_allocs**: 5,482 → ~794 (-85.5%)
 
 ## High-Impact (require more work or risk)
 
@@ -34,7 +36,7 @@
 
 - **Reduce metadata allocations by returning slice instead of map**: `fetchMetadata` returns `map[int64]documentMeta` which requires map allocation + bucket allocations. Returning a `[]documentMeta` in `scoredDocs` order would eliminate the map entirely and remove map lookups in `buildResults`. Requires sorting `scoredDocs` by ID before metadata fetch. **Tested (#43): no improvement, id→index map overhead equals old map overhead.**
 
-- **Connection pool for read-only search**: `DB.Open` sets `MaxOpenConns(1)`. For read-heavy search workloads, multiple connections under WAL mode could allow concurrent reads. Blocked by `:memory:` databases creating per-connection isolated DBs in tests.
+- ~~Connection pool for read-only search~~ (#53): `DB.Open` sets `MaxOpenConns(1)`. For read-heavy search workloads, multiple connections under WAL mode could allow concurrent reads. **Implemented for file-backed DBs with MaxOpenConns=4; in-memory DBs kept at 1. Massive win.**
 
 - **Cache query embeddings**: For repeated identical queries, cache the serialized vector blob in an LRU cache. Would help real-world workloads with popular queries but doesn't affect the benchmark.
 
@@ -58,5 +60,11 @@
 - ~~Pre-compute `lowerTitle` in fetchMetadata~~: Adding field to `documentMeta` increased map overhead.
 - ~~Reduce `FetchMultiplierVec` below 5~~: Retrieval eval fails (negative constraint violations).
 - ~~bm25 alias in FTS~~ (#40): SQLite already deduplicates identical function calls. No improvement.
-- ~~Vector prepared statement~~ (#42): No additional benefit over FTS-only preparation.
-- ~~Connection pool (MaxOpenConns=4)~~: Breaks in-memory DB tests due to per-connection isolation.
+- ~~Vector prepared statement~~ (#42, #54): Initially no benefit with MaxOpenConns=1. With connection pool, provides consistent 2-allocation reduction.
+- ~~Concurrent phrase detection~~ (#31, #55, #56): With MaxOpenConns≥4, phrase detection still doesn't benefit from concurrency. Goroutine overhead and SQLite internal contention offset savings.
+- ~~Metadata slice instead of map~~ (#43): id→index map overhead equals old map overhead.
+- ~~sql.RawBytes for snippet scan~~ (#50): Driver allocates regardless of scan target.
+- ~~buildFTSMatchExpr linear scan~~ (#52): Saves <1µs, undetectable.
+- ~~SnippetMaxTokens 16→12→14~~ (#46, #51): Sweet spot is 16; further reduction within noise.
+- ~~Concurrent phrase+metadata~~ (#56): Goroutine overhead exceeds ~30µs savings.
+- ~~MaxChunksPerDoc 3→2~~ (#49): SQL fetches same rows; Go-level savings undetectable.
