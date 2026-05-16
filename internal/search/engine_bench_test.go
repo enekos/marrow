@@ -437,7 +437,7 @@ func (ie *instrumentedEngine) Search(ctx context.Context, query string, langHint
 	phraseDur := time.Since(t0)
 
 	t0 = time.Now()
-	scoredDocs := ie.computeScores(ftsRes, vecRes)
+	scoredDocs := ie.computeScores(ftsRes, vecRes, nil)
 	scoreDur := time.Since(t0)
 
 	t0 = time.Now()

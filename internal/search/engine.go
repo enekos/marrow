@@ -37,6 +37,21 @@ type Config struct {
 	MaxChunksPerDoc      int
 	ChunkBoost2          float64
 	ChunkBoost3Plus      float64
+
+	// ExactTitleBoost is a strong multiplier applied when the raw title
+	// (case-insensitive, whitespace-trimmed) equals the user's query
+	// verbatim. Stemming collapses morphologically related titles to
+	// identical FTS tokens, so without a raw-title check a query for
+	// "abade" cannot distinguish the headword "abade" from derivatives
+	// like "abadetu" or "abadego" (all stem to the same root).
+	ExactTitleBoost float64
+
+	// SlugMatchBoost is applied when the slugified query equals the
+	// basename of the document path (e.g. "soziolinguistika bariazionista"
+	// matches /…/soziolinguistika-bariazionista.md). This catches the
+	// common case where titles use display capitalization or punctuation
+	// the user didn't type.
+	SlugMatchBoost float64
 }
 
 // DefaultConfig returns the built-in search defaults. These values are tuned
@@ -60,6 +75,8 @@ func DefaultConfig() Config {
 		MaxChunksPerDoc:      3,
 		ChunkBoost2:          1.02,
 		ChunkBoost3Plus:      1.04,
+		ExactTitleBoost:      12.0,
+		SlugMatchBoost:       8.0,
 	}
 }
 
@@ -114,17 +131,19 @@ type DBConn interface {
 
 // Engine executes hybrid search queries.
 type Engine struct {
-	db          DBConn
-	embedFn     embed.Func
-	cfg         Config
-	DetectLang  bool
-	DefaultLang string
-	ftsSQL      string    // precompiled FTS query template
-	ftsStmt     *sql.Stmt // prepared FTS statement (nil if prepare failed)
-	vecSQL      string    // precompiled vector query
-	vecStmt     *sql.Stmt // prepared vector statement (nil if prepare failed)
-	metaSQLTmpl string    // metadata query template up to the IN clause
-	argsPool    sync.Pool // pool for []any metadata arg slices
+	db           DBConn
+	embedFn      embed.Func
+	cfg          Config
+	DetectLang   bool
+	DefaultLang  string
+	ftsSQL       string    // precompiled FTS query template
+	ftsStmt      *sql.Stmt // prepared FTS statement (nil if prepare failed)
+	vecSQL       string    // precompiled vector query
+	vecStmt      *sql.Stmt // prepared vector statement (nil if prepare failed)
+	exactSQL     string    // exact-title / slug candidate query
+	exactStmt    *sql.Stmt // prepared exact-match statement (nil if prepare failed)
+	metaSQLTmpl  string    // metadata query template up to the IN clause
+	argsPool     sync.Pool // pool for []any metadata arg slices
 }
 
 // NewEngine creates a search engine with default configuration.
@@ -163,6 +182,10 @@ func NewEngineWithConfig(database DBConn, embedFn embed.Func, cfg *Config) *Engi
 		ORDER BY v.distance
 	`
 	metaSQLTmpl := `SELECT id, path, title, stemmed_title, lang, doc_type, last_modified FROM documents WHERE id IN (`
+	// Direct exact-match candidate query: pulls docs whose raw title or
+	// path-basename matches the query so the boost stage can rerank them
+	// even if BM25/vector buried them far below the fetch horizon.
+	exactSQL := `SELECT id FROM documents WHERE lower(title) = ? OR lower(path) LIKE ? LIMIT ?`
 	e := &Engine{
 		db:          database,
 		embedFn:     embedFn,
@@ -171,6 +194,7 @@ func NewEngineWithConfig(database DBConn, embedFn embed.Func, cfg *Config) *Engi
 		DefaultLang: config.DefaultLang,
 		ftsSQL:      ftsSQL,
 		vecSQL:      vecSQL,
+		exactSQL:    exactSQL,
 		metaSQLTmpl: metaSQLTmpl,
 	}
 	// Prepare static statements once to avoid per-query SQL parsing overhead.
@@ -180,6 +204,9 @@ func NewEngineWithConfig(database DBConn, embedFn embed.Func, cfg *Config) *Engi
 	}
 	if stmt, err := database.PrepareContext(context.Background(), vecSQL); err == nil {
 		e.vecStmt = stmt
+	}
+	if stmt, err := database.PrepareContext(context.Background(), exactSQL); err == nil {
+		e.exactStmt = stmt
 	}
 	e.argsPool = sync.Pool{New: func() any { return make([]any, 0, 256) }}
 	return e
@@ -212,12 +239,14 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 
 	filterSQL, filterArgs := buildFilterSQL(filter)
 
-	// Run FTS and vector queries concurrently since they are independent.
+	// Run FTS, vector, and exact-title queries concurrently — all three
+	// produce independent candidate sets that are merged downstream.
 	var ftsRes *ftsResult
 	var vecRes *vecResult
-	var ftsErr, vecErr error
+	var exactIDs []int64
+	var ftsErr, vecErr, exactErr error
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 
 	go func() {
 		defer wg.Done()
@@ -229,6 +258,11 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 		vecRes, vecErr = e.queryVectors(ctx, qblob, limit)
 	}()
 
+	go func() {
+		defer wg.Done()
+		exactIDs, exactErr = e.queryExactMatches(ctx, phrase, limit)
+	}()
+
 	wg.Wait()
 	if ftsErr != nil {
 		return nil, ftsErr
@@ -236,13 +270,16 @@ func (e *Engine) Search(ctx context.Context, query string, langHint string, limi
 	if vecErr != nil {
 		return nil, vecErr
 	}
+	if exactErr != nil {
+		return nil, exactErr
+	}
 
 	phraseDocIDs, err := e.detectPhraseMatches(ctx, phrase, limit)
 	if err != nil {
 		return nil, err
 	}
 
-	scoredDocs := e.computeScores(ftsRes, vecRes)
+	scoredDocs := e.computeScores(ftsRes, vecRes, exactIDs)
 	if filterSQL == "" {
 		scoredDocs = e.pruneScoredDocs(scoredDocs, limit)
 	}
@@ -451,6 +488,60 @@ func (e *Engine) queryVectors(ctx context.Context, qblob []byte, limit int) (*ve
 }
 
 // ---------------------------------------------------------------------------
+// Exact-match candidate retrieval
+// ---------------------------------------------------------------------------
+
+// queryExactMatches returns document IDs whose raw title equals the query
+// (case-insensitive) or whose path basename equals the slugified query.
+// These docs are merged into the candidate pool independently of BM25/vector
+// retrieval so the boost stage can rerank them to the top even when content
+// scoring would have buried them far below the fetch horizon.
+func (e *Engine) queryExactMatches(ctx context.Context, phrase string, limit int) ([]int64, error) {
+	if phrase == "" {
+		return nil, nil
+	}
+	titleKey := strings.ToLower(strings.TrimSpace(phrase))
+	if titleKey == "" {
+		return nil, nil
+	}
+	slug := slugify(phrase)
+	pathLike := "%"
+	if slug != "" {
+		// Match any path ending in "/<slug>.<ext>" or just "<slug>.<ext>".
+		pathLike = "%/" + slug + ".%"
+	}
+	cap := limit * 2
+	if cap < 8 {
+		cap = 8
+	}
+	var rows *sql.Rows
+	var err error
+	if e.exactStmt != nil {
+		rows, err = e.exactStmt.QueryContext(ctx, titleKey, pathLike, cap)
+	} else {
+		rows, err = e.db.QueryContext(ctx, e.exactSQL, titleKey, pathLike, cap)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("exact-match query: %w", err)
+	}
+	ids := make([]int64, 0, cap)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan exact-match row: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("exact-match rows: %w", err)
+	}
+	rows.Close()
+	return ids, nil
+}
+
+// ---------------------------------------------------------------------------
 // Phrase detection
 // ---------------------------------------------------------------------------
 
@@ -520,7 +611,16 @@ func (e *Engine) pruneScoredDocs(docs []scoredDoc, limit int) []scoredDoc {
 	if cutoffScore <= 0 {
 		return docs
 	}
-	maxBoost := (1.0 + e.cfg.TitleBoostCoeff) * e.cfg.PhraseBoost * e.cfg.PhraseBoost * (1.0 + e.cfg.RecencyBoostMax) * e.cfg.ChunkBoost3Plus
+	exactBoost := e.cfg.ExactTitleBoost
+	if exactBoost < 1.0 {
+		exactBoost = 1.0
+	}
+	slugBoost := e.cfg.SlugMatchBoost
+	if slugBoost < 1.0 {
+		slugBoost = 1.0
+	}
+	maxBoost := (1.0 + e.cfg.TitleBoostCoeff) * e.cfg.PhraseBoost * e.cfg.PhraseBoost *
+		(1.0 + e.cfg.RecencyBoostMax) * e.cfg.ChunkBoost3Plus * exactBoost * slugBoost
 	// 1.3x safety margin beyond the theoretical maximum boost.
 	threshold := cutoffScore / (maxBoost * 1.3)
 	kept := 0
@@ -533,9 +633,10 @@ func (e *Engine) pruneScoredDocs(docs []scoredDoc, limit int) []scoredDoc {
 	return docs[:kept]
 }
 
-func (e *Engine) computeScores(ftsRes *ftsResult, vecRes *vecResult) []scoredDoc {
-	total := len(ftsRes.infos) + len(vecRes.infos)
+func (e *Engine) computeScores(ftsRes *ftsResult, vecRes *vecResult, exactIDs []int64) []scoredDoc {
+	total := len(ftsRes.infos) + len(vecRes.infos) + len(exactIDs)
 	scoredDocs := make([]scoredDoc, 0, total)
+	seen := make(map[int64]int, total)
 
 	// Process all FTS docs first; vector matches are merged in.
 	for id, info := range ftsRes.infos {
@@ -547,6 +648,7 @@ func (e *Engine) computeScores(ftsRes *ftsResult, vecRes *vecResult) []scoredDoc
 			norm = 1.0 / (1.0 + vinfo.distance)
 			s += e.cfg.VecWeight * ((1.0-e.cfg.ScoreBlendAlpha)*rrf + e.cfg.ScoreBlendAlpha*norm)
 		}
+		seen[id] = len(scoredDocs)
 		scoredDocs = append(scoredDocs, scoredDoc{id: id, score: s})
 	}
 
@@ -558,7 +660,25 @@ func (e *Engine) computeScores(ftsRes *ftsResult, vecRes *vecResult) []scoredDoc
 		rrf := 1.0 / (e.cfg.RRFK + float64(vinfo.rank))
 		norm := 1.0 / (1.0 + vinfo.distance)
 		s := e.cfg.VecWeight * ((1.0-e.cfg.ScoreBlendAlpha)*rrf + e.cfg.ScoreBlendAlpha*norm)
+		seen[id] = len(scoredDocs)
 		scoredDocs = append(scoredDocs, scoredDoc{id: id, score: s})
+	}
+
+	// Inject exact-match candidates that BM25/vector retrieval missed.
+	// Give them a baseline RRF-style score (as if they were ranked just
+	// past the last FTS hit) so the downstream ExactTitleBoost/SlugMatchBoost
+	// can lift them above retrieved-but-unboosted docs without artificially
+	// guaranteeing a top spot — the boost stage still does the real ranking.
+	if len(exactIDs) > 0 {
+		baselineRank := len(ftsRes.infos) + 1
+		baseline := e.cfg.FTSWeight * (1.0 - e.cfg.ScoreBlendAlpha) / (e.cfg.RRFK + float64(baselineRank))
+		for _, id := range exactIDs {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = len(scoredDocs)
+			scoredDocs = append(scoredDocs, scoredDoc{id: id, score: baseline})
+		}
 	}
 
 	return scoredDocs
@@ -640,8 +760,10 @@ func (e *Engine) buildResults(
 
 	// Pre-lower phrase once for case-insensitive title matching.
 	phraseLower := ""
+	querySlug := ""
 	if phrase != "" {
-		phraseLower = strings.ToLower(phrase)
+		phraseLower = strings.ToLower(strings.TrimSpace(phrase))
+		querySlug = slugify(phrase)
 	}
 
 	for _, s := range scoredDocs {
@@ -658,9 +780,19 @@ func (e *Engine) buildResults(
 		tb := titleBoost(stemmedTitle, stemmedTokens, e.cfg.TitleBoostCoeff)
 		score *= tb
 
+		exactTitle := false
+		slugMatch := false
 		if phraseLower != "" {
-			if strings.Contains(strings.ToLower(meta.title), phraseLower) {
+			titleLower := strings.ToLower(strings.TrimSpace(meta.title))
+			if titleLower == phraseLower {
+				score *= e.cfg.ExactTitleBoost
+				exactTitle = true
+			} else if strings.Contains(titleLower, phraseLower) {
 				score *= e.cfg.PhraseBoost
+			}
+			if querySlug != "" && pathBasename(meta.path) == querySlug {
+				score *= e.cfg.SlugMatchBoost
+				slugMatch = true
 			}
 			if _, ok := phraseDocIDs[s.id]; ok {
 				score *= e.cfg.PhraseBoost
@@ -701,6 +833,12 @@ func (e *Engine) buildResults(
 			if _, ok := phraseDocIDs[s.id]; ok {
 				reasons = append(reasons, "exact_phrase")
 			}
+		}
+		if exactTitle {
+			reasons = append(reasons, "exact_title")
+		}
+		if slugMatch {
+			reasons = append(reasons, "slug_match")
 		}
 		if tb > 1.0 {
 			reasons = append(reasons, "title_match")
@@ -833,6 +971,50 @@ func sanitizeFTSToken(t string) string {
 		}
 	}
 	return b.String()
+}
+
+// pathBasename returns the filename portion of path with any trailing
+// extension removed and lowercased. Used to compare against a slugified
+// query so the exact-slug document gets a strong boost.
+func pathBasename(p string) string {
+	if p == "" {
+		return ""
+	}
+	if i := strings.LastIndexAny(p, "/\\"); i >= 0 {
+		p = p[i+1:]
+	}
+	if i := strings.LastIndexByte(p, '.'); i > 0 {
+		p = p[:i]
+	}
+	return strings.ToLower(p)
+}
+
+// slugify converts a free-form query into a path-safe slug: lowercased,
+// runs of non-letter/digit characters collapsed to a single '-', and
+// edges trimmed. This mirrors the slug conventions used by gizapedia
+// and most static-site generators so user queries match doc basenames
+// even when the user types display titles with spaces or punctuation.
+func slugify(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	dash := false
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			dash = false
+			continue
+		}
+		if !dash && b.Len() > 0 {
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+	out := b.String()
+	return strings.TrimRight(out, "-")
 }
 
 func stripOuterQuotes(s string) string {

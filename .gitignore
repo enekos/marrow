@@ -1,6 +1,7 @@
 # Project binaries and artifacts
 marrow
 /eval
+/giza-eval
 *.db
 *.db-shm
 *.db-wal

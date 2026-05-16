@@ -182,6 +182,145 @@ func TestSearch_DefaultLang(t *testing.T) {
 	}
 }
 
+// TestSearch_ExactTitleOutranksStemSiblings simulates the abade/abadetu case
+// where the basque stemmer collapses many morphologically related titles to
+// a single stem. Without an explicit raw-title boost, the exact-match doc
+// loses to longer siblings whose body content happens to repeat the stem.
+func TestSearch_ExactTitleOutranksStemSiblings(t *testing.T) {
+	ctx := context.Background()
+	database := setupTestDB(t)
+	ix := index.NewIndexer(database)
+	embedFn := embed.NewMock()
+
+	// All three titles stem to "abade" in basque. The exact-title doc has
+	// no body mentioning its own title; the two siblings repeat the stem
+	// in their definitions, so pure BM25 would float them above it.
+	docs := []index.Document{
+		{Path: "/hiztegia/a/abade.md", Hash: "1", Title: "abade", Lang: "eu", Source: "test",
+			StemmedText: "monasterio kleriko nagusi apaiz", Embedding: mustEmbed(embedFn, "abade kleriko")},
+		{Path: "/hiztegia/a/abadetu.md", Hash: "2", Title: "abadetu", Lang: "eu", Source: "test",
+			StemmedText: "abade bilakatu edo horren kargu hartu abade", Embedding: mustEmbed(embedFn, "abadetu abade bilakatu")},
+		{Path: "/hiztegia/a/abadego.md", Hash: "3", Title: "abadego", Lang: "eu", Source: "test",
+			StemmedText: "abade kargu lanbide apaizgo abade", Embedding: mustEmbed(embedFn, "abadego abade kargua")},
+	}
+	for _, d := range docs {
+		if err := ix.Index(ctx, d); err != nil {
+			t.Fatalf("index: %v", err)
+		}
+	}
+
+	engine := NewEngine(database, embedFn)
+	results, err := engine.Search(ctx, "abade", "eu", 10, Filter{})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) == 0 || results[0].Title != "abade" {
+		titles := make([]string, len(results))
+		for i, r := range results {
+			titles[i] = r.Title
+		}
+		t.Fatalf("expected 'abade' at rank 1, got order: %v", titles)
+	}
+	hasExactReason := false
+	for _, reason := range results[0].MatchReasons {
+		if reason == "exact_title" || reason == "slug_match" {
+			hasExactReason = true
+			break
+		}
+	}
+	if !hasExactReason {
+		t.Errorf("expected 'exact_title' or 'slug_match' in MatchReasons for top result, got %v", results[0].MatchReasons)
+	}
+}
+
+// TestSearch_SlugMatchBoost verifies that the slugified query matches the
+// path basename even when the display title contains capitalization or
+// punctuation the user did not type.
+func TestSearch_SlugMatchBoost(t *testing.T) {
+	ctx := context.Background()
+	database := setupTestDB(t)
+	ix := index.NewIndexer(database)
+	embedFn := embed.NewMock()
+
+	docs := []index.Document{
+		// The target — basename matches slug("soziolinguistika bariazionista").
+		{Path: "/artikuluak/hizkuntzalaritza/soziolinguistika-bariazionista.md", Hash: "1",
+			Title: "Soziolinguistika bariazionista", Lang: "eu", Source: "test",
+			StemmedText: "soziolinguistika bariazionista hizkuntza aldaer",
+			Embedding:   mustEmbed(embedFn, "soziolinguistika bariazionista")},
+		// A distractor doc whose body mentions both stems many times.
+		{Path: "/artikuluak/hizkuntzalaritza/aldaerak.md", Hash: "2",
+			Title: "Aldaera linguistikoak", Lang: "eu", Source: "test",
+			StemmedText: "soziolinguistika soziolinguistika bariazionista bariazionista bariazionista aldaer aldaer",
+			Embedding:   mustEmbed(embedFn, "aldaera linguistikoak")},
+	}
+	for _, d := range docs {
+		if err := ix.Index(ctx, d); err != nil {
+			t.Fatalf("index: %v", err)
+		}
+	}
+
+	engine := NewEngine(database, embedFn)
+	results, err := engine.Search(ctx, "soziolinguistika bariazionista", "eu", 10, Filter{})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) == 0 || !strings.Contains(results[0].Path, "soziolinguistika-bariazionista.md") {
+		titles := make([]string, len(results))
+		for i, r := range results {
+			titles[i] = r.Title + " (" + r.Path + ")"
+		}
+		t.Fatalf("expected slug-match doc at rank 1, got: %v", titles)
+	}
+}
+
+// TestSearch_ExactMatchInjectedWhenBM25Misses guarantees an exact-title doc
+// is returned even if BM25 and vector retrieval would have buried it past
+// the fetch horizon — the dedicated exact-match candidate query injects it
+// into scoring.
+func TestSearch_ExactMatchInjectedWhenBM25Misses(t *testing.T) {
+	ctx := context.Background()
+	database := setupTestDB(t)
+	ix := index.NewIndexer(database)
+	embedFn := embed.NewMock()
+
+	// 20 noise docs whose stemmed bodies all repeat "abade" — BM25 will
+	// favor them. The exact-title doc has minimal content, so a small
+	// FetchMultiplier would not retrieve it without the exact-match query.
+	for i := 0; i < 20; i++ {
+		doc := index.Document{
+			Path: fmt.Sprintf("/noise/%02d.md", i), Hash: fmt.Sprintf("noise-%d", i),
+			Title: fmt.Sprintf("noise-%02d", i), Lang: "eu", Source: "test",
+			StemmedText: "abade abade abade abade abade abade abade abade",
+			Embedding:   mustEmbed(embedFn, fmt.Sprintf("noise %d abade", i)),
+		}
+		if err := ix.Index(ctx, doc); err != nil {
+			t.Fatalf("index noise %d: %v", i, err)
+		}
+	}
+	target := index.Document{
+		Path: "/hiztegia/a/abade.md", Hash: "target", Title: "abade", Lang: "eu", Source: "test",
+		StemmedText: "monasterio kleriko nagusi",
+		Embedding:   mustEmbed(embedFn, "abade"),
+	}
+	if err := ix.Index(ctx, target); err != nil {
+		t.Fatalf("index target: %v", err)
+	}
+
+	engine := NewEngine(database, embedFn)
+	results, err := engine.Search(ctx, "abade", "eu", 10, Filter{})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) == 0 || results[0].Title != "abade" {
+		titles := make([]string, 0, len(results))
+		for _, r := range results {
+			titles = append(titles, r.Title)
+		}
+		t.Fatalf("expected exact-title doc at rank 1, got: %v", titles)
+	}
+}
+
 // -----------------------------------------------------------------------------
 // Approved-truth (golden-file) tests
 // -----------------------------------------------------------------------------
@@ -336,6 +475,46 @@ func TestStripOuterQuotes(t *testing.T) {
 				t.Errorf("stripOuterQuotes(%q) = %q, want %q", tt.s, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSlugify(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"abade", "abade"},
+		{"Soziolinguistika bariazionista", "soziolinguistika-bariazionista"},
+		{"  Hello   World!  ", "hello-world"},
+		{"a-priori", "a-priori"},
+		{"es: wolframio", "es-wolframio"},
+		{"...---", ""},
+		{"", ""},
+		{"single", "single"},
+		{"Unicode Ñ café", "unicode-ñ-café"},
+	}
+	for _, tt := range tests {
+		if got := slugify(tt.in); got != tt.want {
+			t.Errorf("slugify(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestPathBasename(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"/a/b/c.md", "c"},
+		{"c.md", "c"},
+		{"/a/Wolframio.MD", "wolframio"},
+		{"/a/b.tar.gz", "b.tar"},
+		{"", ""},
+		{"/", ""},
+		{"no-extension", "no-extension"},
+	}
+	for _, tt := range tests {
+		if got := pathBasename(tt.in); got != tt.want {
+			t.Errorf("pathBasename(%q) = %q, want %q", tt.in, got, tt.want)
+		}
 	}
 }
 

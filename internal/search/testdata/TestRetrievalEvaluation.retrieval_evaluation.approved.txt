@@ -52,12 +52,12 @@ Category mean                 1.00  0.70  0.58  0.45  1.00  0.90
 --- Category: negative (5 queries) ---
 Query                         P@1   P@3   P@5   P@10  MRR   AP    ✓/✗
 ────────────────────────────  ────  ────  ────  ────  ────  ────  ───
-rust                          0.00  0.33  0.60  0.60  0.33  0.54  ✓
+rust                          1.00  0.67  0.60  0.60  1.00  0.76  ✓
 database                      1.00  0.33  0.20  0.10  1.00  1.00  ✓
 go                            0.00  0.67  0.80  0.50  0.50  0.71  ✓
 python decorators             1.00  0.33  0.20  0.10  1.00  1.00  ✓
 pandas                        1.00  0.67  0.40  0.20  1.00  1.00  ✓
-Category mean                 0.60  0.47  0.44  0.30  0.77  0.85
+Category mean                 0.80  0.53  0.44  0.30  0.90  0.89
 
 --- Category: semantic (6 queries) ---
 Query                         P@1   P@3   P@5   P@10  MRR   AP    ✓/✗
@@ -67,8 +67,8 @@ security                      1.00  0.33  0.20  0.10  1.00  1.00  ✓
 database                      1.00  0.33  0.20  0.10  1.00  1.00  ✓
 algorithms                    1.00  0.33  0.20  0.10  1.00  1.00  ✓
 cloud computing               1.00  0.33  0.20  0.10  1.00  1.00  ✓
-design patterns               0.00  0.33  0.20  0.10  0.50  0.50  ✓
-Category mean                 0.83  0.33  0.20  0.10  0.92  0.92
+design patterns               1.00  0.33  0.20  0.10  1.00  1.00  ✓
+Category mean                 1.00  0.33  0.20  0.10  1.00  1.00
 
 --- Category: variants (9 queries) ---
 Query                         P@1   P@3   P@5   P@10  MRR   AP    ✓/✗
@@ -87,20 +87,20 @@ Category mean                 1.00  0.48  0.38  0.23  1.00  0.80
 ✓ All queries passed their thresholds and constraints.
 
 Aggregate:
-  Mean P@1: 0.917  R@1: 0.423  F1@1: 0.522  NDCG@1: 0.917  HR@1: 0.917
-  Mean P@3: 0.562  R@3: 0.599  F1@3: 0.506  NDCG@3: 0.779  HR@3: 0.979
-  Mean P@5: 0.437  R@5: 0.690  F1@5: 0.466  NDCG@5: 0.788  HR@5: 0.979
-  Mean P@10: 0.283  R@10: 0.782  F1@10: 0.365  NDCG@10: 0.801  HR@10: 0.979
-  MRR:  0.9444
-  MAP:  0.8843
-  RPrec:0.6651
+  Mean P@1: 0.958  R@1: 0.446  F1@1: 0.548  NDCG@1: 0.958  HR@1: 0.958
+  Mean P@3: 0.569  R@3: 0.602  F1@3: 0.509  NDCG@3: 0.797  HR@3: 0.979
+  Mean P@5: 0.437  R@5: 0.690  F1@5: 0.466  NDCG@5: 0.801  HR@5: 0.979
+  Mean P@10: 0.283  R@10: 0.782  F1@10: 0.365  NDCG@10: 0.812  HR@10: 0.979
+  MRR:  0.9688
+  MAP:  0.8993
+  RPrec:0.6859
 
 Per-category summary:
   cross-language          MAP: 0.960  MRR: 1.000  pass: 9/9  ✓
   edge-case               MAP: 0.800  MRR: 0.800  pass: 5/5  ✓
   lang-filtered           MAP: 1.000  MRR: 1.000  pass: 3/3  ✓
   language-specific       MAP: 0.900  MRR: 1.000  pass: 11/11  ✓
-  negative                MAP: 0.850  MRR: 0.767  pass: 5/5  ✓
-  semantic                MAP: 0.917  MRR: 0.917  pass: 6/6  ✓
+  negative                MAP: 0.894  MRR: 0.900  pass: 5/5  ✓
+  semantic                MAP: 1.000  MRR: 1.000  pass: 6/6  ✓
   variants                MAP: 0.795  MRR: 1.000  pass: 9/9  ✓
 
